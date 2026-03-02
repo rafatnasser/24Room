@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Room Booking | Building 24</title>
+  <style>
+    :root{
+      --bg:#f4f6f9; --card:#fff; --text:#0f172a; --muted:#64748b; --primary:#0b5ed7;
+      --danger:#dc3545; --border:#e2e8f0; --shadow:0 10px 30px rgba(2,6,23,.08); --radius:14px;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:"Segoe UI",Tahoma,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    .container{max-width:1100px;margin:24px auto;padding:0 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px}
+    .header{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+    .title{font-size:20px;font-weight:800}
+    .sub{font-size:13px;color:var(--muted);margin-top:4px}
+    .row{display:grid;grid-template-columns:repeat(12,1fr);gap:12px;margin-top:14px}
+    .field{display:flex;flex-direction:column;gap:6px}
+    label{font-size:13px;color:var(--muted);font-weight:800}
+    input,select,textarea{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;outline:none;font-size:14px;background:#fff}
+    textarea{min-height:90px;resize:vertical}
+    .btn{padding:10px 14px;border:none;border-radius:10px;cursor:pointer;font-weight:900;font-size:14px}
+    .btn.primary{background:var(--primary);color:#fff}
+    .btn.danger{background:var(--danger);color:#fff}
+    .btn.ghost{background:transparent;border:1px solid var(--border)}
+    .btn:disabled{opacity:.6;cursor:not-allowed}
+    .alert{margin-top:12px;padding:10px 12px;border-radius:10px;font-weight:900}
+    .alert.ok{background:#e7f7ee;color:#0f5132;border:1px solid #bfe7cf}
+    .alert.bad{background:#fdecec;color:#842029;border:1px solid #f5c2c7}
+    .hr{margin:16px 0;border-top:1px solid var(--border)}
+    .table{width:100%;border-collapse:collapse;font-size:14px}
+    .table th,.table td{padding:10px;border-bottom:1px solid var(--border);text-align:start;vertical-align:top}
+    .pill{display:inline-flex;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:900;border:1px solid var(--border)}
+    .pill.confirmed{background:#e7f7ee;color:#0f5132;border-color:#bfe7cf}
+    .pill.canceled{background:#fdecec;color:#842029;border-color:#f5c2c7}
+    .grid-split{display:grid;grid-template-columns:1.2fr .8fr;gap:14px}
+    @media (max-width:980px){.grid-split{grid-template-columns:1fr}}
+
+    /* calendar */
+    .cal-head{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:12px;color:var(--muted);font-size:12px;font-weight:900}
+    .calendar{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-top:12px}
+    .day{background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px;min-height:110px;cursor:pointer}
+    .day.off{opacity:.5;cursor:default}
+    .day .d{font-size:12px;font-weight:900;color:var(--muted)}
+    .day .count{margin-top:8px;font-size:12px;font-weight:900}
+    .day.active{outline:3px solid rgba(11,94,215,.25);border-color:rgba(11,94,215,.5)}
+    .top-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .small{font-size:12px;color:var(--muted);font-weight:800}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <div class="header">
+      <div>
+        <div class="title" id="tTitle">نظام حجز الغرف (115/116) - مبنى 24</div>
+        <div class="sub" id="tSub">حجز بنصف ساعة • منع تعارض • تقويم مرئي • Admin + إلغاء</div>
+      </div>
+      <div class="top-actions">
+        <span class="small">AR/EN</span>
+        <button class="btn ghost" id="btnLang">AR</button>
+        <button class="btn ghost" id="btnGoAdmin">Admin</button>
+        <button class="btn ghost" id="btnGoBook" style="display:none;">Booking</button>
+      </div>
+    </div>
+
+    <!-- BOOKING VIEW -->
+    <div id="viewBooking">
+      <div class="row">
+        <div class="field" style="grid-column:span 3;">
+          <label id="lRoom">الغرفة</label>
+          <select id="room">
+            <option value="115">115</option>
+            <option value="116">116</option>
+          </select>
+        </div>
+
+        <div class="field" style="grid-column:span 3;">
+          <label id="lDate">التاريخ</label>
+          <input type="date" id="date" />
+        </div>
+
+        <div class="field" style="grid-column:span 3;">
+          <label id="lStart">وقت البداية</label>
+          <select id="start"></select>
+        </div>
+
+        <div class="field" style="grid-column:span 3;">
+          <label id="lEnd">وقت النهاية</label>
+          <select id="end"></select>
+        </div>
+
+        <div class="field" style="grid-column:span 6;">
+          <label id="lName">الاسم</label>
+          <input type="text" id="name" placeholder="الاسم" />
+        </div>
+
+        <div class="field" style="grid-column:span 6;">
+          <label id="lEmail">البريد الإلكتروني</label>
+          <input type="email" id="email" placeholder="name@domain.com" />
+        </div>
+
+        <div class="field" style="grid-column:span 12;">
+          <label id="lNotes">ملاحظات</label>
+          <textarea id="notes" placeholder="..."></textarea>
+        </div>
+
+        <div class="field" style="grid-column:span 12;">
+          <button class="btn primary" id="btnBook">إرسال طلب الحجز</button>
+          <div id="msg"></div>
+          <div class="small" id="privacyNote" style="margin-top:6px;">
+            ملاحظة: هذه النسخة تحفظ البيانات محليًا في المتصفح (ليست قاعدة بيانات مشتركة).
+          </div>
+        </div>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="grid-split">
+        <div class="card" style="box-shadow:none;">
+          <div class="header">
+            <div>
+              <div class="title" id="calTitle">تقويم الحجوزات</div>
+              <div class="sub" id="calSub">انقر على يوم لعرض الحجوزات المؤكدة (على هذا الجهاز)</div>
+            </div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="btn ghost" id="prevM">‹</button>
+              <div style="font-weight:900;" id="monthLabel"></div>
+              <button class="btn ghost" id="nextM">›</button>
+            </div>
+          </div>
+          <div class="cal-head" id="calHead"></div>
+          <div class="calendar" id="calendar"></div>
+        </div>
+
+        <div class="card" style="box-shadow:none;">
+          <div class="title" id="dayTitle">حجوزات اليوم</div>
+          <div class="sub mono" id="daySub">—</div>
+          <div class="hr"></div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th id="thTime">الوقت</th>
+                <th id="thRoom">الغرفة</th>
+                <th id="thName">الاسم</th>
+              </tr>
+            </thead>
+            <tbody id="dayRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADMIN VIEW -->
+    <div id="viewAdmin" style="display:none;">
+      <div class="row" id="adminLogin">
+        <div class="field" style="grid-column:span 6;">
+          <label id="lAdminPass">كلمة مرور الإدارة</label>
+          <input type="password" id="adminPass" placeholder="••••••••" />
+          <div class="small">
+            تنبيه: كلمة المرور في نسخة HTML فقط ليست “حماية حقيقية” ضد من يقرأ الملف. للحماية الحقيقية يلزم Backend.
+          </div>
+        </div>
+        <div class="field" style="grid-column:span 6;align-self:end;">
+          <button class="btn primary" id="btnAdminLogin">Login</button>
+        </div>
+        <div class="field" style="grid-column:span 12;">
+          <div id="adminMsg"></div>
+        </div>
+      </div>
+
+      <div id="adminPanel" style="display:none;">
+        <div class="row">
+          <div class="field" style="grid-column:span 3;">
+            <label id="lFRoom">Room</label>
+            <select id="fRoom">
+              <option value="">All</option>
+              <option value="115">115</option>
+              <option value="116">116</option>
+            </select>
+          </div>
+          <div class="field" style="grid-column:span 3;">
+            <label id="lFDate">Date</label>
+            <input type="date" id="fDate" />
+          </div>
+          <div class="field" style="grid-column:span 3;">
+            <label id="lFStatus">Status</label>
+            <select id="fStatus">
+              <option value="">All</option>
+              <option value="Confirmed">Confirmed</option>
+              <option value="Canceled">Canceled</option>
+            </select>
+          </div>
+          <div class="field" style="grid-column:span 3;align-self:end;">
+            <button class="btn ghost" id="btnRefresh">Refresh</button>
+          </div>
+        </div>
+
+        <div class="hr"></div>
+
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Time</th>
+              <th>Room</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Status</th>
+              <th>Notes</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="adminRows"></tbody>
+        </table>
+
+        <div class="small" style="margin-top:10px;">
+          Tip: لإفراغ جميع البيانات على هذا الجهاز فقط: افتح DevTools → Application → Local Storage → امسح المفتاح <span class="mono">roomBookingsV2</span>.
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* =============================
+   Single-file booking system
+   - localStorage only (per device)
+   - admin password (client-side demo)
+   - cancel bookings
+   - month calendar view
+   - mailto for confirm/decline/cancel
+   - ICS download on confirm
+================================ */
+
+let lang = "AR";
+
+// Change this admin password (demo only)
+const ADMIN_PASSWORD = "Kfupm@2013"; // <-- غيّرها إذا رغبت
+
+const i18n = {
+  AR: {
+    dir:"rtl",
+    title:"نظام حجز الغرف (115/116) - مبنى 24",
+    sub:"حجز بنصف ساعة • منع تعارض • تقويم مرئي • Admin + إلغاء",
+    room:"الغرفة", date:"التاريخ", start:"وقت البداية", end:"وقت النهاية",
+    name:"الاسم", email:"البريد الإلكتروني", notes:"ملاحظات",
+    book:"إرسال طلب الحجز",
+    privacy:"ملاحظة: هذه النسخة تحفظ البيانات محليًا في المتصفح (ليست قاعدة بيانات مشتركة).",
+    calTitle:"تقويم الحجوزات",
+    calSub:"انقر على يوم لعرض الحجوزات المؤكدة (على هذا الجهاز)",
+    dayTitle:"حجوزات اليوم",
+    thTime:"الوقت", thRoom:"الغرفة", thName:"الاسم",
+    ok:"تم تأكيد الحجز ✔ وتم تنزيل دعوة التقويم. تم فتح بريد التأكيد.",
+    decline:"عذرًا، الغرفة غير متاحة في هذا الوقت. تم فتح بريد الاعتذار.",
+    bad:"يرجى تعبئة جميع الحقول المطلوبة.",
+    noDay:"لا توجد حجوزات مؤكدة.",
+    days:["الأحد","الإثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت"],
+    admin:"لوحة التحكم",
+    booking:"الحجز",
+    adminPass:"كلمة مرور الإدارة",
+    wrong:"كلمة المرور غير صحيحة.",
+    statusConfirmed:"مؤكد",
+    statusCanceled:"ملغي",
+    cancel:"إلغاء",
+    cancelDone:"تم إلغاء الحجز وتم فتح بريد الإلغاء."
+  },
+  EN: {
+    dir:"ltr",
+    title:"Room Booking System (115/116) - Building 24",
+    sub:"30-minute slots • conflict prevention • calendar view • Admin + cancel",
+    room:"Room", date:"Date", start:"Start time", end:"End time",
+    name:"Name", email:"Email", notes:"Notes",
+    book:"Submit booking",
+    privacy:"Note: This standalone version stores bookings locally in your browser (not a shared database).",
+    calTitle:"Booking Calendar",
+    calSub:"Click a day to view confirmed bookings (on this device)",
+    dayTitle:"Day bookings",
+    thTime:"Time", thRoom:"Room", thName:"Name",
+    ok:"Booking confirmed ✔ ICS downloaded. Confirmation email draft opened.",
+    decline:"Room not available. Decline email draft opened.",
+    bad:"Please fill all required fields.",
+    noDay:"No confirmed bookings.",
+    days:["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],
+    admin:"Admin",
+    booking:"Booking",
+    adminPass:"Admin password",
+    wrong:"Wrong password.",
+    statusConfirmed:"Confirmed",
+    statusCanceled:"Canceled",
+    cancel:"Cancel",
+    cancelDone:"Booking canceled. Cancel email draft opened."
+  }
+};
+
+function setLang(next){
+  lang = next;
+  document.documentElement.lang = (lang==="AR"?"ar":"en");
+  document.documentElement.dir = i18n[lang].dir;
+  document.getElementById("btnLang").textContent = (lang==="AR"?"AR":"EN");
+  document.getElementById("tTitle").textContent = i18n[lang].title;
+  document.getElementById("tSub").textContent = i18n[lang].sub;
+  document.getElementById("lRoom").textContent = i18n[lang].room;
+  document.getElementById("lDate").textContent = i18n[lang].date;
+  document.getElementById("lStart").textContent = i18n[lang].start;
+  document.getElementById("lEnd").textContent = i18n[lang].end;
+  document.getElementById("lName").textContent = i18n[lang].name;
+  document.getElementById("lEmail").textContent = i18n[lang].email;
+  document.getElementById("lNotes").textContent = i18n[lang].notes;
+  document.getElementById("btnBook").textContent = i18n[lang].book;
+  document.getElementById("privacyNote").textContent = i18n[lang].privacy;
+
+  document.getElementById("calTitle").textContent = i18n[lang].calTitle;
+  document.getElementById("calSub").textContent = i18n[lang].calSub;
+  document.getElementById("dayTitle").textContent = i18n[lang].dayTitle;
+  document.getElementById("thTime").textContent = i18n[lang].thTime;
+  document.getElementById("thRoom").textContent = i18n[lang].thRoom;
+  document.getElementById("thName").textContent = i18n[lang].thName;
+
+  document.getElementById("lAdminPass").textContent = i18n[lang].adminPass;
+  document.getElementById("lFRoom").textContent = "Room";
+  document.getElementById("lFDate").textContent = "Date";
+  document.getElementById("lFStatus").textContent = "Status";
+
+  // calendar header
+  const head = document.getElementById("calHead");
+  head.innerHTML = "";
+  i18n[lang].days.forEach(d=>{
+    const div=document.createElement("div");
+    div.textContent=d;
+    head.appendChild(div);
+  });
+
+  renderCalendar();
+  renderDay(selectedDayStr || ymd(new Date()));
+  renderAdminTable();
+}
+
+document.getElementById("btnLang").addEventListener("click", ()=>{
+  setLang(lang==="AR"?"EN":"AR");
+});
+
+// ===== Storage =====
+const STORE_KEY = "roomBookingsV2";
+function getAll(){
+  return JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
+}
+function setAll(arr){
+  localStorage.setItem(STORE_KEY, JSON.stringify(arr));
+}
+function uid(){
+  return (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
+}
+
+// ===== Time slots 07:30–23:30 =====
+function buildTimes(){
+  const times = [];
+  for(let h=7; h<=23; h++){
+    times.push(`${String(h).padStart(2,"0")}:00`);
+    times.push(`${String(h).padStart(2,"0")}:30`);
+  }
+  times.shift(); // remove 07:00 -> start 07:30
+  return times;
+}
+const TIMES = buildTimes();
+
+function populateTimes(){
+  const start = document.getElementById("start");
+  const end = document.getElementById("end");
+  start.innerHTML = "";
+  TIMES.forEach(t=>{
+    const o=document.createElement("option");
+    o.value=t; o.textContent=t;
+    start.appendChild(o);
+  });
+  function refreshEnd(){
+    end.innerHTML="";
+    TIMES.forEach(t=>{
+      if(t>start.value){
+        const o=document.createElement("option");
+        o.value=t; o.textContent=t;
+        end.appendChild(o);
+      }
+    });
+    // default +30
+    const idx = TIMES.indexOf(start.value);
+    if(idx>=0 && TIMES[idx+1]) end.value = TIMES[idx+1];
+  }
+  start.addEventListener("change", refreshEnd);
+  start.value = "08:00";
+  refreshEnd();
+}
+populateTimes();
+
+// default date = today
+document.getElementById("date").valueAsDate = new Date();
+
+// ===== Booking logic =====
+const msg = document.getElementById("msg");
+function show(type, text){
+  msg.innerHTML = `<div class="alert ${type}">${escapeHtml(text)}</div>`;
+}
+
+document.getElementById("btnBook").addEventListener("click", ()=>{
+  const room = document.getElementById("room").value;
+  const date = document.getElementById("date").value;
+  const start = document.getElementById("start").value;
+  const end = document.getElementById("end").value;
+  const name = document.getElementById("name").value.trim();
+  const email = document.getElementById("email").value.trim();
+  const notes = document.getElementById("notes").value.trim();
+
+  if(!room || !date || !start || !end || !name || !email){
+    show("bad", i18n[lang].bad);
+    return;
+  }
+  if(end <= start){
+    show("bad", "Invalid time range.");
+    return;
+  }
+
+  const all = getAll();
+
+  // conflict against CONFIRMED only
+  const conflict = all.find(b =>
+    b.status === "Confirmed" &&
+    b.room === room &&
+    b.date === date &&
+    !(end <= b.start || start >= b.end)
+  );
+
+  if(conflict){
+    show("bad", i18n[lang].decline);
+    openMail(email, "decline", {room,date,start,end,name,notes});
+    return;
+  }
+
+  const booking = {
+    id: uid(),
+    status: "Confirmed",
+    room, date, start, end,
+    name, email, notes,
+    createdAt: new Date().toISOString()
+  };
+
+  all.push(booking);
+  setAll(all);
+
+  // Calendar file + Email draft
+  downloadICS(booking);
+  openMail(email, "confirm", booking);
+
+  show("ok", i18n[lang].ok);
+
+  // refresh UI
+  loadMonthData();
+  selectDay(date);
+  renderAdminTable();
+
+  // reset notes only
+  document.getElementById("notes").value = "";
+});
+
+// ===== Mailto (draft) =====
+function openMail(to, kind, b){
+  const subject = (kind==="confirm")
+    ? `Room ${b.room} Booking Confirmed - Building 24`
+    : (kind==="cancel")
+      ? `Room ${b.room} Booking Canceled - Building 24`
+      : `Room ${b.room} Not Available - Building 24`;
+
+  const ar = (kind==="confirm")
+    ? `تم تأكيد حجزكم للغرفة ${b.room} في مبنى 24 بتاريخ ${b.date} من ${b.start} إلى ${b.end}.\nالملاحظات: ${b.notes||"-"}`
+    : (kind==="cancel")
+      ? `تم إلغاء حجز الغرفة ${b.room} في مبنى 24 بتاريخ ${b.date} من ${b.start} إلى ${b.end}.`
+      : `نعتذر، الغرفة ${b.room} غير متاحة بتاريخ ${b.date} من ${b.start} إلى ${b.end}.`;
+
+  const en = (kind==="confirm")
+    ? `Your booking for Room ${b.room} in Building 24 on ${b.date} from ${b.start} to ${b.end} is confirmed.\nNotes: ${b.notes||"-"}`
+    : (kind==="cancel")
+      ? `Your booking for Room ${b.room} in Building 24 on ${b.date} from ${b.start} to ${b.end} has been canceled.`
+      : `Unfortunately, Room ${b.room} is not available on ${b.date} from ${b.start} to ${b.end}.`;
+
+  const body = `${ar}\n\n---\n\n${en}`;
+  location.href = `mailto:${encodeURIComponent(to)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+// ===== ICS download =====
+function downloadICS(b){
+  const dtStart = formatICS(b.date, b.start);
+  const dtEnd   = formatICS(b.date, b.end);
+  const uidVal  = b.id + "@room-booking";
+
+  const ics =
+`BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Room Booking//EN
+CALSCALE:GREGORIAN
+METHOD:REQUEST
+BEGIN:VEVENT
+UID:${uidVal}
+SUMMARY:Room ${b.room} Booking - Building 24
+DTSTAMP:${nowICS()}
+DTSTART:${dtStart}
+DTEND:${dtEnd}
+LOCATION:Building 24 - Room ${b.room}
+DESCRIPTION:${escapeICSText(`Booked by ${b.name}. Notes: ${b.notes||"-"}`)}
+END:VEVENT
+END:VCALENDAR`;
+
+  const blob = new Blob([ics], {type:"text/calendar;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `room-${b.room}-${b.date}-${b.start.replace(":","")}.ics`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function formatICS(date, time){
+  // Local time format (floating) YYYYMMDDTHHMMSS
+  return date.replace(/-/g,"") + "T" + time.replace(":","") + "00";
+}
+function nowICS(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2,"0");
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth()+1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
+}
+function escapeICSText(s){
+  return (s||"").replace(/\\/g,"\\\\").replace(/\n/g,"\\n").replace(/,/g,"\\,").replace(/;/g,"\\;");
+}
+
+// ===== Calendar view =====
+let current = new Date(); current.setDate(1);
+let selectedDayStr = "";
+let monthData = []; // confirmed bookings for month on this device
+
+function ymd(d){
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth()+1).padStart(2,"0");
+  const dd = String(d.getDate()).padStart(2,"0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+function monthKey(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+}
+function loadMonthData(){
+  const m = monthKey(current);
+  const all = getAll();
+  monthData = all.filter(x => x.status==="Confirmed" && x.date.startsWith(m));
+}
+function monthLabel(){
+  const opts = {month:"long", year:"numeric"};
+  const locale = (lang==="AR" ? "ar-SA" : "en-US");
+  return new Intl.DateTimeFormat(locale, opts).format(current);
+}
+function countByDay(dateStr){
+  return monthData.filter(x => x.date === dateStr).length;
+}
+function renderCalendar(){
+  document.getElementById("monthLabel").textContent = monthLabel();
+  const cal = document.getElementById("calendar");
+  cal.innerHTML = "";
+
+  const firstDow = new Date(current.getFullYear(), current.getMonth(), 1).getDay(); // 0 Sun
+  const daysInMonth = new Date(current.getFullYear(), current.getMonth()+1, 0).getDate();
+
+  for(let i=0;i<firstDow;i++){
+    const blank=document.createElement("div");
+    blank.className="day off";
+    cal.appendChild(blank);
+  }
+
+  for(let day=1; day<=daysInMonth; day++){
+    const d = new Date(current.getFullYear(), current.getMonth(), day);
+    const ds = ymd(d);
+    const c = countByDay(ds);
+
+    const el = document.createElement("div");
+    el.className="day";
+    el.dataset.date = ds;
+    el.innerHTML = `
+      <div class="d">${day}</div>
+      <div class="count">${c ? (c + (lang==="AR"?" حجز":" bookings")) : (lang==="AR"?"لا حجوزات":"No bookings")}</div>
+    `;
+    el.addEventListener("click", ()=>selectDay(ds));
+    cal.appendChild(el);
+  }
+
+  // keep selected
+  if(selectedDayStr) selectDay(selectedDayStr);
+}
+
+function selectDay(dateStr){
+  selectedDayStr = dateStr;
+  document.querySelectorAll(".day").forEach(x=>x.classList.remove("active"));
+  const target = [...document.querySelectorAll(".day")].find(x=>x.dataset.date===dateStr);
+  if(target) target.classList.add("active");
+  renderDay(dateStr);
+}
+
+function renderDay(dateStr){
+  const rows = document.getElementById("dayRows");
+  rows.innerHTML = "";
+  document.getElementById("daySub").textContent = dateStr;
+
+  const items = getAll()
+    .filter(x=>x.status==="Confirmed" && x.date===dateStr)
+    .sort((a,b)=> a.start.localeCompare(b.start));
+
+  if(items.length===0){
+    rows.innerHTML = `<tr><td colspan="3" style="color:var(--muted);font-weight:900;">${i18n[lang].noDay}</td></tr>`;
+    return;
+  }
+
+  items.forEach(x=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(x.start)} - ${escapeHtml(x.end)}</td>
+      <td>${escapeHtml(x.room)}</td>
+      <td>${escapeHtml(x.name)}</td>
+    `;
+    rows.appendChild(tr);
+  });
+}
+
+document.getElementById("prevM").addEventListener("click", ()=>{
+  current.setMonth(current.getMonth()-1);
+  loadMonthData(); renderCalendar();
+});
+document.getElementById("nextM").addEventListener("click", ()=>{
+  current.setMonth(current.getMonth()+1);
+  loadMonthData(); renderCalendar();
+});
+
+// ===== Admin view =====
+let adminAuthed = false;
+
+function showAdminMsg(type, text){
+  document.getElementById("adminMsg").innerHTML = `<div class="alert ${type}">${escapeHtml(text)}</div>`;
+}
+
+document.getElementById("btnGoAdmin").addEventListener("click", ()=>{
+  switchView("admin");
+});
+document.getElementById("btnGoBook").addEventListener("click", ()=>{
+  switchView("booking");
+});
+
+function switchView(which){
+  const vb = document.getElementById("viewBooking");
+  const va = document.getElementById("viewAdmin");
+  const goBook = document.getElementById("btnGoBook");
+  if(which==="admin"){
+    vb.style.display="none"; va.style.display="block";
+    goBook.style.display="inline-flex";
+    renderAdminTable();
+  }else{
+    vb.style.display="block"; va.style.display="none";
+    goBook.style.display="none";
+  }
+}
+
+document.getElementById("btnAdminLogin").addEventListener("click", ()=>{
+  const pass = document.getElementById("adminPass").value;
+  if(pass === ADMIN_PASSWORD){
+    adminAuthed = true;
+    document.getElementById("adminLogin").style.display="none";
+    document.getElementById("adminPanel").style.display="block";
+    showAdminMsg("ok", "OK");
+    renderAdminTable();
+  }else{
+    showAdminMsg("bad", i18n[lang].wrong);
+  }
+});
+
+document.getElementById("btnRefresh").addEventListener("click", renderAdminTable);
+document.getElementById("fRoom").addEventListener("change", renderAdminTable);
+document.getElementById("fDate").addEventListener("change", renderAdminTable);
+document.getElementById("fStatus").addEventListener("change", renderAdminTable);
+
+function pill(status){
+  if(status==="Confirmed") return `<span class="pill confirmed">${lang==="AR"?i18n.AR.statusConfirmed:i18n.EN.statusConfirmed}</span>`;
+  if(status==="Canceled") return `<span class="pill canceled">${lang==="AR"?i18n.AR.statusCanceled:i18n.EN.statusCanceled}</span>`;
+  return `<span class="pill">${escapeHtml(status)}</span>`;
+}
+
+function renderAdminTable(){
+  if(!adminAuthed) return;
+  const room = document.getElementById("fRoom").value;
+  const date = document.getElementById("fDate").value;
+  const status = document.getElementById("fStatus").value;
+
+  let items = getAll().slice().sort((a,b)=>{
+    if(a.date!==b.date) return b.date.localeCompare(a.date);
+    return a.start.localeCompare(b.start);
+  });
+
+  if(room) items = items.filter(x=>x.room===room);
+  if(date) items = items.filter(x=>x.date===date);
+  if(status) items = items.filter(x=>x.status===status);
+
+  const tbody = document.getElementById("adminRows");
+  tbody.innerHTML = "";
+
+  if(items.length===0){
+    tbody.innerHTML = `<tr><td colspan="8" style="color:var(--muted);font-weight:900;">No records</td></tr>`;
+    return;
+  }
+
+  items.forEach(x=>{
+    const canCancel = x.status==="Confirmed";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${escapeHtml(x.date)}</td>
+      <td>${escapeHtml(x.start)} - ${escapeHtml(x.end)}</td>
+      <td>${escapeHtml(x.room)}</td>
+      <td>${escapeHtml(x.name)}</td>
+      <td>${escapeHtml(x.email)}</td>
+      <td>${pill(x.status)}</td>
+      <td>${escapeHtml((x.notes||"").slice(0,60))}</td>
+      <td>
+        <button class="btn danger" ${canCancel?"":"disabled"} data-id="${x.id}">${lang==="AR"?i18n.AR.cancel:i18n.EN.cancel}</button>
+      </td>
+    `;
+    tr.querySelector("button").addEventListener("click", ()=>cancelBooking(x.id));
+    tbody.appendChild(tr);
+  });
+}
+
+function cancelBooking(id){
+  const all = getAll();
+  const idx = all.findIndex(x=>x.id===id);
+  if(idx<0) return;
+
+  const b = all[idx];
+  const ok = confirm(`${lang==="AR"?"هل تريد إلغاء هذا الحجز؟":"Cancel this booking?"}\nRoom ${b.room} ${b.date} ${b.start}-${b.end}`);
+  if(!ok) return;
+
+  all[idx].status = "Canceled";
+  all[idx].canceledAt = new Date().toISOString();
+  setAll(all);
+
+  // open cancel email draft
+  openMail(b.email, "cancel", b);
+
+  showAdminMsg("ok", i18n[lang].cancelDone);
+
+  // refresh booking + calendar views
+  loadMonthData();
+  renderCalendar();
+  renderDay(selectedDayStr || ymd(new Date()));
+  renderAdminTable();
+}
+
+// ===== Utils =====
+function escapeHtml(s){
+  return (s||"").replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+
+// init
+(function init(){
+  setLang("AR");
+  loadMonthData();
+  renderCalendar();
+  selectDay(ymd(new Date()));
+})();
+</script>
+</body>
+</html>
