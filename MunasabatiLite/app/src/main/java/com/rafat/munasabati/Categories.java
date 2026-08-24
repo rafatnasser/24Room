@@ -4,16 +4,16 @@ import android.content.Context;
 
 public final class Categories {
     public static final String[] CODES = {
-            "none","mawlid","marriage","engagement","lunch","dinner","breakfast",
-            "entertainment","martyrdom","death","fatiha","fortieth","anniversary","weekly_habit"
+            "none","mawlid","birthday","marriage","wedding_anniversary","engagement","lunch","dinner","breakfast",
+            "entertainment","travel","eid_fitr","eid_adha","martyrdom","death","fatiha","fortieth","anniversary","weekly_habit"
     };
     private static final String[] AR = {
-            "بدون فئة","مولد","زواج","خطوبة","غداء","عشاء","فطور",
-            "ترفيه","استشهاد","وفاة","فاتحة","أربعينية","سنوية","عادة أسبوعية"
+            "بدون فئة","مولد","عيد ميلاد","زواج","عيد زواج","خطوبة","غداء","عشاء","فطور",
+            "ترفيه","سفر","عيد الفطر السعيد","عيد الأضحى المبارك","استشهاد","وفاة","فاتحة","أربعينية","سنوية","عادة أسبوعية"
     };
     private static final String[] EN = {
-            "Uncategorized","Mawlid","Wedding","Engagement","Lunch","Dinner","Breakfast",
-            "Entertainment","Martyrdom","Death","Fatiha","Fortieth memorial","Anniversary","Weekly habit"
+            "Uncategorized","Mawlid","Birthday","Wedding","Wedding anniversary","Engagement","Lunch","Dinner","Breakfast",
+            "Entertainment","Travel","Happy Eid al-Fitr","Blessed Eid al-Adha","Martyrdom","Death","Fatiha","Fortieth memorial","Anniversary","Weekly habit"
     };
 
     public static String label(Context c, String code) {
