@@ -1,0 +1,34 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+
+    <!-- soft halo -->
+    <path android:fillColor="#33FFFFFF"
+        android:pathData="M54,16a38,38 0,1 0,0 76a38,38 0,1 0,0 -76z"/>
+
+    <!-- calendar card -->
+    <path android:fillColor="#FFFDFC"
+        android:pathData="M31,28h46a8,8 0,0 1,8 8v42a8,8 0,0 1,-8 8H31a8,8 0,0 1,-8 -8V36a8,8 0,0 1,8 -8z"/>
+
+    <!-- calendar header -->
+    <path android:fillColor="#E4B85B"
+        android:pathData="M23,40h62v11H23z"/>
+
+    <!-- binder tabs -->
+    <path android:fillColor="#FFFDFC"
+        android:pathData="M35,22h6a3,3 0,0 1,3 3v9a3,3 0,0 1,-3 3h-6a3,3 0,0 1,-3 -3v-9a3,3 0,0 1,3 -3z"/>
+    <path android:fillColor="#FFFDFC"
+        android:pathData="M67,22h6a3,3 0,0 1,3 3v9a3,3 0,0 1,-3 3h-6a3,3 0,0 1,-3 -3v-9a3,3 0,0 1,3 -3z"/>
+
+    <!-- simple date marks -->
+    <path android:fillColor="#0E5A52"
+        android:pathData="M33,59h9v8h-9zM47,59h9v8h-9zM33,72h9v8h-9zM47,72h9v8h-9z"/>
+
+    <!-- celebration sparkle -->
+    <path android:fillColor="#E4B85B"
+        android:pathData="M70,57l3.4,7l7.6,1.1l-5.5,5.3l1.3,7.6l-6.8,-3.6l-6.8,3.6l1.3,-7.6l-5.5,-5.3l7.6,-1.1z"/>
+
+    <!-- small sparkle -->
+    <path android:fillColor="#FFFDFC"
+        android:pathData="M82,21l1.7,3.5l3.8,0.6l-2.8,2.7l0.7,3.8l-3.4,-1.8l-3.4,1.8l0.7,-3.8l-2.8,-2.7l3.8,-0.6z"/>
+</vector>
