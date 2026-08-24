@@ -1,51 +1,57 @@
 package com.rafat.munasabati;
 
 import android.Manifest;
-import android.app.Notification;
-import android.app.NotificationChannel;
-import android.app.NotificationManager;
-import android.app.PendingIntent;
-import android.content.BroadcastReceiver;
-import android.content.Context;
-import android.content.Intent;
+import android.app.*;
+import android.content.*;
 import android.content.pm.PackageManager;
 import android.os.Build;
 
 public class ReminderReceiver extends BroadcastReceiver {
     private static final String CHANNEL="event_reminders";
 
-    @Override public void onReceive(Context context, Intent intent){
-        boolean ar=AppSettings.isArabic(context);
-        String channelName=ar?"تذكيرات المناسبات":"Event reminders";
-        String desc=ar?"تنبيهات المناسبات المحفوظة في تطبيق مناسبتي":"Reminders for events saved in Munasabati";
-
-        NotificationManager nm=(NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE);
-        if(Build.VERSION.SDK_INT>=26){
-            NotificationChannel ch=new NotificationChannel(CHANNEL,channelName,NotificationManager.IMPORTANCE_HIGH);
-            ch.setDescription(desc); nm.createNotificationChannel(ch);
+    @Override public void onReceive(Context context,Intent intent){
+        String action=intent.getAction();
+        if(ReminderScheduler.ACTION_SNOOZE.equals(action)){
+            long id=intent.getLongExtra("event_id",0L),occ=intent.getLongExtra("occurrence_time",0L);
+            long delay=intent.getLongExtra("snooze_delay",600000L);
+            int notif=intent.getIntExtra("notification_id",0),token=intent.getIntExtra("snooze_token",0);
+            ReminderScheduler.scheduleSnooze(context,id,occ,delay,token);
+            ((NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE)).cancel(notif);
+            return;
         }
 
-        long id=intent.getLongExtra("event_id",0L);
-        long occurrence=intent.getLongExtra("occurrence_time",0L);
+        boolean ar=AppSettings.isArabic(context);
+        NotificationManager nm=(NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if(Build.VERSION.SDK_INT>=26){
+            NotificationChannel ch=new NotificationChannel(CHANNEL,ar?"تذكيرات المناسبات":"Event reminders",NotificationManager.IMPORTANCE_HIGH);
+            ch.setDescription(ar?"تنبيهات المناسبات المحفوظة في تطبيق مناسبتي":"Reminders for events saved in Munasabati");nm.createNotificationChannel(ch);
+        }
+
+        long id=intent.getLongExtra("event_id",0L),occurrence=intent.getLongExtra("occurrence_time",0L);
+        int reminderIndex=intent.getIntExtra("reminder_index",0),minutes=intent.getIntExtra("reminder_minutes",0);
+        boolean snooze=intent.getBooleanExtra("is_snooze",false);
         EventStore.Event e=EventStore.find(context,id);
         String title=e!=null?e.title:intent.getStringExtra("title");
         if(title==null||title.trim().isEmpty())title=ar?"لديك مناسبة قادمة":"You have an upcoming event";
-        if(occurrence<=0 && e!=null) occurrence=e.eventTime;
+        if(occurrence<=0&&e!=null)occurrence=e.eventTime;
 
-        if(Build.VERSION.SDK_INT<33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED){
+        int notificationId=31*(int)(id^(id>>>32))+(snooze?900+intent.getIntExtra("snooze_token",0):reminderIndex);
+        if(Build.VERSION.SDK_INT<33||context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)==PackageManager.PERMISSION_GRANTED){
             Intent open=new Intent(context,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK|Intent.FLAG_ACTIVITY_CLEAR_TOP);
-            PendingIntent content=PendingIntent.getActivity(context,Long.valueOf(id).hashCode(),open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-            Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(context,CHANNEL):new Notification.Builder(context);
+            PendingIntent content=PendingIntent.getActivity(context,(int)(id^(id>>>32)),open,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             String body=e==null?title:Categories.label(context,e.category)+" • "+DateTools.gregorian(context,occurrence,true);
-            if(e!=null && Recurrence.isRecurring(e)) body += " • "+Recurrence.label(context,e.recurrence);
-            Notification n=b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-                    .setContentTitle(ar?"تذكير بالمناسبة":"Event reminder")
-                    .setContentText(body)
-                    .setStyle(new Notification.BigTextStyle().bigText(title+"\n"+body))
-                    .setContentIntent(content).setAutoCancel(true).build();
-            nm.notify(Long.valueOf(id).hashCode(),n);
+            if(snooze)body+=(ar?" • تنبيه مؤجل":" • Snoozed reminder");
+
+            Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(context,CHANNEL):new Notification.Builder(context);
+            b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle(ar?"تذكير بالمناسبة":"Event reminder").setContentText(body)
+                    .setStyle(new Notification.BigTextStyle().bigText(title+"\n"+body)).setContentIntent(content).setAutoCancel(true);
+
+            b.addAction(new Notification.Action.Builder(0,ar?"10 دقائق":"10 min",ReminderScheduler.snoozeAction(context,id,occurrence,10*60000L,notificationId,1)).build());
+            b.addAction(new Notification.Action.Builder(0,ar?"ساعة":"1 hour",ReminderScheduler.snoozeAction(context,id,occurrence,60*60000L,notificationId,2)).build());
+            b.addAction(new Notification.Action.Builder(0,ar?"غدًا":"Tomorrow",ReminderScheduler.snoozeAction(context,id,occurrence,24*60*60000L,notificationId,3)).build());
+            nm.notify(notificationId,b.build());
         }
 
-        if(e!=null && Recurrence.isRecurring(e)) ReminderScheduler.schedule(context,e);
+        if(e!=null&&!snooze&&Recurrence.isRecurring(e))ReminderScheduler.scheduleIndex(context,e,reminderIndex,minutes,System.currentTimeMillis()+1000L);
     }
 }
