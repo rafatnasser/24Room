@@ -12,6 +12,7 @@
         </activity>
         <provider android:name=".AttachmentProvider" android:authorities="com.rafat.munasabati.attachments" android:exported="false" android:grantUriPermissions="true"/>
         <receiver android:name=".ReminderReceiver" android:exported="false"/>
+        <receiver android:name=".AutoBackupReceiver" android:exported="false"/>
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter></receiver>
     </application>
 </manifest>
