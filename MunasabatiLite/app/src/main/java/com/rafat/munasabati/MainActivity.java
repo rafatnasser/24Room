@@ -97,31 +97,36 @@ public class MainActivity extends Activity {
     }
 
     private void reload(){
-        if(list==null)return; list.removeAllViews(); List<EventStore.Event> events=EventStore.load(this); long now=System.currentTimeMillis(); boolean any=false,upHead=false,pastHead=false;
-        for(EventStore.Event e:events){ if(e.eventTime>=now && matches(e)){ if(!upHead){section(tr("القادمة","Upcoming"));upHead=true;}addCard(e);any=true; } }
-        for(int i=events.size()-1;i>=0;i--){EventStore.Event e=events.get(i);if(e.eventTime<now&&matches(e)){if(!pastHead){section(tr("السابقة","Past"));pastHead=true;}addCard(e);any=true;}}
+        if(list==null)return; list.removeAllViews(); List<EventStore.Event> events=EventStore.load(this); long now=System.currentTimeMillis();
+        events.sort((a,b)->Long.compare(displayTime(a,now),displayTime(b,now)));
+        boolean any=false,upHead=false,pastHead=false;
+        for(EventStore.Event e:events){ long t=displayTime(e,now); if(t>=now && matches(e,t)){ if(!upHead){section(tr("القادمة","Upcoming"));upHead=true;}addCard(e,t);any=true; } }
+        for(int i=events.size()-1;i>=0;i--){EventStore.Event e=events.get(i);long t=displayTime(e,now);if(!Recurrence.isRecurring(e)&&t<now&&matches(e,t)){if(!pastHead){section(tr("السابقة","Past"));pastHead=true;}addCard(e,t);any=true;}}
         if(!any){TextView empty=text(tr("لا توجد نتائج مطابقة\nجرّب تغيير كلمات البحث أو الفلاتر","No matching events\nTry changing the search or filters"),17,true);empty.setGravity(Gravity.CENTER);empty.setTextColor(muted);empty.setPadding(dp(10),dp(70),dp(10),0);list.addView(empty);}
     }
 
-    private boolean matches(EventStore.Event e){
+    private long displayTime(EventStore.Event e,long now){ return Recurrence.isRecurring(e)?Recurrence.nextOccurrence(e,now):e.eventTime; }
+
+    private boolean matches(EventStore.Event e,long shownTime){
         int catPos=categoryFilter==null?0:categoryFilter.getSelectedItemPosition(); if(catPos>0&&!Categories.CODES[catPos-1].equals(e.category))return false;
-        int dayPos=dayFilter==null?0:dayFilter.getSelectedItemPosition(); if(dayPos>0 && DateTools.dayOfWeek(e.eventTime)!=dayPos)return false;
-        if(selectedDate>0){Calendar a=Calendar.getInstance(),b=Calendar.getInstance();a.setTimeInMillis(selectedDate);b.setTimeInMillis(e.eventTime);if(a.get(Calendar.YEAR)!=b.get(Calendar.YEAR)||a.get(Calendar.DAY_OF_YEAR)!=b.get(Calendar.DAY_OF_YEAR))return false;}
+        int dayPos=dayFilter==null?0:dayFilter.getSelectedItemPosition(); if(dayPos>0 && DateTools.dayOfWeek(shownTime)!=dayPos)return false;
+        if(selectedDate>0){Calendar a=Calendar.getInstance(),b=Calendar.getInstance();a.setTimeInMillis(selectedDate);b.setTimeInMillis(shownTime);if(a.get(Calendar.YEAR)!=b.get(Calendar.YEAR)||a.get(Calendar.DAY_OF_YEAR)!=b.get(Calendar.DAY_OF_YEAR))return false;}
         String q=search==null?"":normalize(search.getText().toString()); if(q.isEmpty())return true;
-        String hay=e.title+" "+e.details+" "+e.locationName+" "+e.locationUrl+" "+Categories.arabicLabel(e.category)+" "+Categories.englishLabel(e.category)+" "+DateTools.gregorian(this,e.eventTime,true)+" "+DateTools.hijri(this,e.eventTime)+" "+DateTools.hijriNumeric(this,e.eventTime)+" "+DateTools.dayArabic(e.eventTime)+" "+DateTools.dayEnglish(e.eventTime);
+        String hay=e.title+" "+e.details+" "+e.locationName+" "+e.locationUrl+" "+Categories.arabicLabel(e.category)+" "+Categories.englishLabel(e.category)+" "+Recurrence.label(this,e.recurrence)+" "+DateTools.gregorian(this,shownTime,true)+" "+DateTools.hijri(this,shownTime)+" "+DateTools.hijriNumeric(this,shownTime)+" "+DateTools.dayArabic(shownTime)+" "+DateTools.dayEnglish(shownTime);
         return normalize(hay).contains(q);
     }
     private String normalize(String s){String x=Normalizer.normalize(s==null?"":s,Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);return x.replace('أ','ا').replace('إ','ا').replace('آ','ا').replace('ى','ي').replace('ة','ه');}
 
     private void section(String s){TextView t=text(s,20,true);t.setTextColor(primary);t.setPadding(dp(2),dp(10),dp(2),dp(7));list.addView(t);}
 
-    private void addCard(EventStore.Event e){
+    private void addCard(EventStore.Event e,long shownTime){
         LinearLayout card=new LinearLayout(this);card.setOrientation(LinearLayout.VERTICAL);card.setPadding(dp(15),dp(13),dp(15),dp(12));card.setBackground(round(Color.WHITE,20));LinearLayout.LayoutParams cp=lp(-1,-2);cp.setMargins(0,0,0,dp(10));list.addView(card,cp);
         LinearLayout head=new LinearLayout(this);head.setGravity(Gravity.CENTER_VERTICAL);card.addView(head,new LinearLayout.LayoutParams(-1,-2));
         TextView n=text(e.title,19,true);n.setTextColor(Color.rgb(31,42,55));head.addView(n,new LinearLayout.LayoutParams(0,-2,1));
         TextView cat=text(Categories.label(this,e.category),12,true);cat.setTextColor(primary);cat.setGravity(Gravity.CENTER);cat.setPadding(dp(10),dp(5),dp(10),dp(5));cat.setBackground(round(Color.rgb(229,242,240),20));head.addView(cat);
-        TextView g=text("📅  "+DateTools.gregorian(this,e.eventTime,true),14,false);g.setTextColor(Color.rgb(55,65,81));g.setPadding(0,dp(8),0,0);card.addView(g);
-        TextView h=text("☾  "+DateTools.hijri(this,e.eventTime),14,false);h.setTextColor(accent);h.setPadding(0,dp(3),0,0);card.addView(h);
+        TextView g=text("📅  "+DateTools.gregorian(this,shownTime,true),14,false);g.setTextColor(Color.rgb(55,65,81));g.setPadding(0,dp(8),0,0);card.addView(g);
+        TextView h=text("☾  "+DateTools.hijri(this,shownTime),14,false);h.setTextColor(accent);h.setPadding(0,dp(3),0,0);card.addView(h);
+        if(Recurrence.isRecurring(e)){TextView r=text("↻  "+tr("يتكرر ","Repeats ")+Recurrence.label(this,e.recurrence),13,true);r.setTextColor(primary);r.setPadding(0,dp(4),0,0);card.addView(r);}
         if(!e.locationName.trim().isEmpty()){TextView l=text("📍  "+e.locationName,14,false);l.setTextColor(muted);l.setPadding(0,dp(5),0,0);card.addView(l);}
         if(!e.details.trim().isEmpty()){TextView x=text(e.details,14,false);x.setTextColor(muted);x.setPadding(0,dp(8),0,0);card.addView(x);}
         LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.END);actions.setPadding(0,dp(10),0,0);card.addView(actions);
