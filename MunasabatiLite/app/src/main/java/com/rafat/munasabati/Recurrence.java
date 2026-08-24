@@ -56,9 +56,16 @@ public final class Recurrence {
         return nextOccurrence(e, now + lead + 1000L);
     }
 
+    public static long firstOccurrenceBetween(EventStore.Event e,long start,long end){
+        if(e==null)return -1L;
+        if(!isRecurring(e))return e.eventTime>=start&&e.eventTime<end?e.eventTime:-1L;
+        long t=nextOccurrence(e,start);
+        return t>=start&&t<end?t:-1L;
+    }
+
     public static String autoForCategory(String category) {
         if ("weekly_habit".equals(category)) return WEEKLY;
-        if ("anniversary".equals(category)) return YEARLY;
+        if ("anniversary".equals(category) || "birthday".equals(category) || "wedding_anniversary".equals(category)) return YEARLY;
         return NONE;
     }
 
