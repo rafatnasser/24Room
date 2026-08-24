@@ -3,10 +3,7 @@ package com.rafat.munasabati;
 import android.content.Context;
 import org.json.JSONArray;
 import org.json.JSONObject;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.List;
+import java.util.*;
 
 public final class EventStore {
     private static final String PREFS="munasabati_events";
@@ -19,7 +16,8 @@ public final class EventStore {
         public String recurrence=Recurrence.NONE;
         public String details="";
         public long eventTime;
-        public int reminderMinutes=30;
+        public int reminderMinutes=30; // legacy compatibility
+        public String remindersCsv="30";
         public String attachmentUri="";
         public String attachmentName="";
         public String attachmentType="";
@@ -47,10 +45,27 @@ public final class EventStore {
 
     public static Event find(Context context,long id){for(Event e:load(context))if(e.id==id)return e;return null;}
 
+    public static List<Integer> reminders(Event e){
+        LinkedHashSet<Integer> values=new LinkedHashSet<>();
+        String csv=e==null?"":e.remindersCsv;
+        if(csv!=null&&!csv.trim().isEmpty()){
+            for(String p:csv.split(","))try{int v=Integer.parseInt(p.trim());if(v>=0)values.add(v);}catch(Exception ignored){}
+        }
+        if(values.isEmpty()&&e!=null)values.add(Math.max(0,e.reminderMinutes));
+        ArrayList<Integer> out=new ArrayList<>(values);Collections.sort(out,Collections.reverseOrder());return out;
+    }
+
+    public static String remindersCsv(Collection<Integer> values){
+        LinkedHashSet<Integer> clean=new LinkedHashSet<>();
+        if(values!=null)for(Integer v:values)if(v!=null&&v>=0)clean.add(v);
+        ArrayList<Integer> sorted=new ArrayList<>(clean);Collections.sort(sorted,Collections.reverseOrder());
+        StringBuilder b=new StringBuilder();for(Integer v:sorted){if(b.length()>0)b.append(",");b.append(v);}return b.toString();
+    }
+
     public static JSONObject toJsonObject(Event e,boolean includeAttachmentUri){
         JSONObject o=new JSONObject();try{
             o.put("id",e.id);o.put("title",e.title);o.put("category",e.category);o.put("recurrence",e.recurrence);
-            o.put("details",e.details);o.put("eventTime",e.eventTime);o.put("reminderMinutes",e.reminderMinutes);
+            o.put("details",e.details);o.put("eventTime",e.eventTime);o.put("reminderMinutes",e.reminderMinutes);o.put("remindersCsv",e.remindersCsv);
             o.put("attachmentUri",includeAttachmentUri?e.attachmentUri:"");o.put("attachmentName",e.attachmentName);o.put("attachmentType",e.attachmentType);
             o.put("locationName",e.locationName);o.put("locationUrl",e.locationUrl);o.put("color",e.color);
             o.put("favorite",e.favorite);o.put("pinned",e.pinned);
@@ -62,8 +77,8 @@ public final class EventStore {
         e.id=o.optLong("id",System.currentTimeMillis());e.title=o.optString("title","");
         e.category=o.optString("category","none");e.recurrence=o.optString("recurrence",Recurrence.autoForCategory(e.category));
         e.details=o.optString("details","");e.eventTime=o.optLong("eventTime",System.currentTimeMillis());
-        e.reminderMinutes=o.optInt("reminderMinutes",30);e.attachmentUri=o.optString("attachmentUri","");
-        e.attachmentName=o.optString("attachmentName","");e.attachmentType=o.optString("attachmentType","");
+        e.reminderMinutes=o.optInt("reminderMinutes",30);e.remindersCsv=o.optString("remindersCsv",String.valueOf(e.reminderMinutes));
+        e.attachmentUri=o.optString("attachmentUri","");e.attachmentName=o.optString("attachmentName","");e.attachmentType=o.optString("attachmentType","");
         e.locationName=o.optString("locationName","");e.locationUrl=o.optString("locationUrl","");
         e.color=o.optString("color","");e.favorite=o.optBoolean("favorite",false);e.pinned=o.optBoolean("pinned",false);
         return e;
@@ -71,7 +86,7 @@ public final class EventStore {
 
     public static JSONObject exportJson(Context c,boolean portable){
         JSONObject root=new JSONObject();try{
-            root.put("format","Munasabati");root.put("version",3);
+            root.put("format","Munasabati");root.put("version",4);
             root.put("language",AppSettings.language(c));root.put("hijriOffset",AppSettings.hijriOffset(c));
             root.put("categoryColors",ColorPalette.exportSettings(c));
             JSONArray a=new JSONArray();for(Event e:load(c))a.put(toJsonObject(e,!portable));root.put("events",a);
