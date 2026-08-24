@@ -1,9 +1,6 @@
 name: Build Munasabati APK
 
 on:
-  push:
-    branches:
-      - chatgpt-munasabati-apk-build
   pull_request:
     branches:
       - main
@@ -24,13 +21,13 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build APK
+      - name: Build unsigned release APK
         working-directory: MunasabatiLite
-        run: gradle assembleDebug --stacktrace
-      - name: Rename APK
-        run: cp MunasabatiLite/app/build/outputs/apk/debug/app-debug.apk Munasabati.apk
+        run: gradle assembleRelease --stacktrace
+      - name: Collect unsigned APK
+        run: cp MunasabatiLite/app/build/outputs/apk/release/app-release-unsigned.apk Munasabati-Unsigned.apk
       - uses: actions/upload-artifact@v4
         with:
-          name: Munasabati-APK
-          path: Munasabati.apk
+          name: Munasabati-Unsigned-APK
+          path: Munasabati-Unsigned.apk
           if-no-files-found: error
