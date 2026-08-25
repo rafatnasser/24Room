@@ -15,7 +15,7 @@ public final class AppSettings {
 
     public static String language(Context c){return c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(LANG,"ar");}
     public static boolean isArabic(Context c){return "ar".equals(language(c));}
-    public static void setLanguage(Context c,String value){c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(LANG,value).apply();}
+    public static void setLanguage(Context c,String value){c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(LANG,value).apply();WidgetUpdater.updateAll(c);}
     public static int hijriOffset(Context c){return c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getInt(HIJRI_OFFSET,0);}
     public static void setHijriOffset(Context c,int value){c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putInt(HIJRI_OFFSET,value).apply();}
 
