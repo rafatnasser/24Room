@@ -7,8 +7,6 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 
 public class ReminderReceiver extends BroadcastReceiver {
-    private static final String CHANNEL="event_reminders";
-
     @Override public void onReceive(Context context,Intent intent){
         String action=intent.getAction();
         if(ReminderScheduler.ACTION_SNOOZE.equals(action)){
@@ -21,11 +19,8 @@ public class ReminderReceiver extends BroadcastReceiver {
         }
 
         boolean ar=AppSettings.isArabic(context);
+        NotificationSupport.ensureChannel(context);
         NotificationManager nm=(NotificationManager)context.getSystemService(Context.NOTIFICATION_SERVICE);
-        if(Build.VERSION.SDK_INT>=26){
-            NotificationChannel ch=new NotificationChannel(CHANNEL,ar?"تذكيرات المناسبات":"Event reminders",NotificationManager.IMPORTANCE_HIGH);
-            ch.setDescription(ar?"تنبيهات المناسبات المحفوظة في تطبيق مناسبتي":"Reminders for events saved in Munasabati");nm.createNotificationChannel(ch);
-        }
 
         long id=intent.getLongExtra("event_id",0L),occurrence=intent.getLongExtra("occurrence_time",0L);
         int reminderIndex=intent.getIntExtra("reminder_index",0),minutes=intent.getIntExtra("reminder_minutes",0);
@@ -42,9 +37,21 @@ public class ReminderReceiver extends BroadcastReceiver {
             String body=e==null?title:Categories.label(context,e.category)+" • "+DateTools.gregorian(context,occurrence,true);
             if(snooze)body+=(ar?" • تنبيه مؤجل":" • Snoozed reminder");
 
-            Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(context,CHANNEL):new Notification.Builder(context);
-            b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm).setContentTitle(ar?"تذكير بالمناسبة":"Event reminder").setContentText(body)
-                    .setStyle(new Notification.BigTextStyle().bigText(title+"\n"+body)).setContentIntent(content).setAutoCancel(true);
+            Notification.Builder b=Build.VERSION.SDK_INT>=26
+                    ?new Notification.Builder(context,NotificationSupport.CHANNEL_ID)
+                    :new Notification.Builder(context);
+            b.setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+                    .setContentTitle(ar?"تذكير بالمناسبة":"Event reminder")
+                    .setContentText(body)
+                    .setStyle(new Notification.BigTextStyle().bigText(title+"\n"+body))
+                    .setContentIntent(content)
+                    .setAutoCancel(true)
+                    .setCategory(Notification.CATEGORY_EVENT)
+                    .setVisibility(Notification.VISIBILITY_PUBLIC)
+                    .setPriority(Notification.PRIORITY_MAX)
+                    .setDefaults(Notification.DEFAULT_ALL)
+                    .setWhen(System.currentTimeMillis())
+                    .setShowWhen(true);
 
             b.addAction(new Notification.Action.Builder(0,ar?"10 دقائق":"10 min",ReminderScheduler.snoozeAction(context,id,occurrence,10*60000L,notificationId,1)).build());
             b.addAction(new Notification.Action.Builder(0,ar?"ساعة":"1 hour",ReminderScheduler.snoozeAction(context,id,occurrence,60*60000L,notificationId,2)).build());
