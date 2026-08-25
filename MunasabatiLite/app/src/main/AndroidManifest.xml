@@ -24,6 +24,16 @@
         <receiver android:name=".StrongAlertReceiver" android:exported="false"/>
         <receiver android:name=".AutoBackupReceiver" android:exported="false"/>
         <receiver android:name=".CalendarSyncReceiver" android:exported="false"/>
+        <receiver android:name=".MunasabatiWidgetProvider" android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+                <action android:name="android.intent.action.DATE_CHANGED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.intent.action.LOCALE_CHANGED"/>
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/munasabati_widget_info"/>
+        </receiver>
         <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true"><intent-filter><action android:name="android.intent.action.BOOT_COMPLETED"/></intent-filter></receiver>
     </application>
 </manifest>
