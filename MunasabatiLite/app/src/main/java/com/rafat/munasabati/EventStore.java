@@ -27,8 +27,11 @@ public final class EventStore {
         public boolean favorite=false;
         public boolean pinned=false;
         public boolean strongAlert=false;
+        public boolean calendarSync=false;
         public long calendarId=-1L;
         public long calendarEventId=-1L;
+        public String calendarFingerprint="";
+        public long updatedAt=0L;
     }
 
     public static List<Event> load(Context context){
@@ -47,6 +50,7 @@ public final class EventStore {
     }
 
     public static Event find(Context context,long id){for(Event e:load(context))if(e.id==id)return e;return null;}
+    public static void replace(Context c,Event event){List<Event> all=new ArrayList<>(load(c));all.removeIf(x->x.id==event.id);all.add(event);save(c,all);}
 
     public static List<Integer> reminders(Event e){
         LinkedHashSet<Integer> values=new LinkedHashSet<>();
@@ -72,7 +76,8 @@ public final class EventStore {
             o.put("attachmentUri",includeAttachmentUri?e.attachmentUri:"");o.put("attachmentName",e.attachmentName);o.put("attachmentType",e.attachmentType);
             o.put("locationName",e.locationName);o.put("locationUrl",e.locationUrl);o.put("color",e.color);
             o.put("favorite",e.favorite);o.put("pinned",e.pinned);o.put("strongAlert",e.strongAlert);
-            o.put("calendarId",e.calendarId);o.put("calendarEventId",e.calendarEventId);
+            o.put("calendarSync",e.calendarSync);o.put("calendarId",e.calendarId);o.put("calendarEventId",e.calendarEventId);
+            o.put("calendarFingerprint",e.calendarFingerprint);o.put("updatedAt",e.updatedAt);
         }catch(Exception ignored){}return o;
     }
 
@@ -86,6 +91,8 @@ public final class EventStore {
         e.locationName=o.optString("locationName","");e.locationUrl=o.optString("locationUrl","");
         e.color=o.optString("color","");e.favorite=o.optBoolean("favorite",false);e.pinned=o.optBoolean("pinned",false);e.strongAlert=o.optBoolean("strongAlert",false);
         e.calendarId=o.optLong("calendarId",-1L);e.calendarEventId=o.optLong("calendarEventId",-1L);
+        e.calendarSync=o.has("calendarSync")?o.optBoolean("calendarSync",false):e.calendarEventId>0;
+        e.calendarFingerprint=o.optString("calendarFingerprint","");e.updatedAt=o.optLong("updatedAt",e.eventTime);
         return e;
     }
 
@@ -100,7 +107,7 @@ public final class EventStore {
 
     public static int importJson(Context c,JSONObject root){
         JSONArray a=root.optJSONArray("events");if(a==null)return 0;
-        ArrayList<Event> events=new ArrayList<>();for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null){Event e=fromJsonObject(o);e.calendarId=-1L;e.calendarEventId=-1L;events.add(e);}}
+        ArrayList<Event> events=new ArrayList<>();for(int i=0;i<a.length();i++){JSONObject o=a.optJSONObject(i);if(o!=null)events.add(fromJsonObject(o));}
         save(c,events);
         String lang=root.optString("language","");if("ar".equals(lang)||"en".equals(lang))AppSettings.setLanguage(c,lang);
         if(root.has("hijriOffset"))AppSettings.setHijriOffset(c,root.optInt("hijriOffset",0));
