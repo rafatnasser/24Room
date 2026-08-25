@@ -47,6 +47,7 @@ public final class EventStore {
     public static void save(Context context,List<Event> events){
         JSONArray a=new JSONArray();for(Event e:events)a.put(toJsonObject(e,true));
         context.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(KEY,a.toString()).apply();
+        WidgetUpdater.updateAll(context);
     }
 
     public static Event find(Context context,long id){for(Event e:load(context))if(e.id==id)return e;return null;}
