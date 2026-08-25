@@ -21,9 +21,6 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Apply v3.2 premium UI patch
-        working-directory: MunasabatiLite
-        run: python patch_v320.py
       - name: Build unsigned release APK
         working-directory: MunasabatiLite
         run: gradle assembleRelease --stacktrace
