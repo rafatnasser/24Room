@@ -1,9 +1,7 @@
 package com.rafat.munasabati;
 
 import android.Manifest;
-import android.app.Activity;
-import android.app.DatePickerDialog;
-import android.app.TimePickerDialog;
+import android.app.*;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
@@ -13,6 +11,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.location.Location;
 import android.location.LocationManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.view.Gravity;
@@ -26,11 +25,12 @@ public class EditEventActivity extends Activity {
     private Button dateBtn,timeBtn,attachBtn;
     private TextView hijriPreview;
     private Spinner category,recurrence,colorSpinner;
-    private CheckBox favoriteBox,pinnedBox;
+    private CheckBox favoriteBox,pinnedBox,strongAlertBox;
     private CheckBox[] reminderChecks;
     private final int[] reminderValues={10080,2880,1440,180,60,30,10,0};
     private long eventTime,id;
     private int lastCategoryPos=0;
+    private boolean loadingExisting=false;
     private String attachmentUri="",attachmentName="",attachmentType="";
     private final int primary=Color.rgb(25,91,86),accent=Color.rgb(208,151,56),bg=Color.rgb(246,248,251),muted=Color.rgb(91,101,115);
 
@@ -79,6 +79,11 @@ public class EditEventActivity extends Activity {
             if(reminderValues[i]==30)cb.setChecked(true);
         }
 
+        strongAlertBox=new CheckBox(this);strongAlertBox.setText(tr("🔔 تنبيه قوي — صوت منبّه متكرر ويظهر فوق شاشة القفل","🔔 Strong alert — repeating alarm sound and full-screen lock-screen alert"));strongAlertBox.setTextSize(14);strongAlertBox.setTypeface(null,Typeface.BOLD);
+        LinearLayout.LayoutParams sap=new LinearLayout.LayoutParams(-1,-2);sap.setMargins(0,dp(10),0,0);when.addView(strongAlertBox,sap);
+        TextView strongHint=label(tr("مناسب للمناسبات المهمة جدًا. يستمر التنبيه حتى توقفه أو تؤجله.","For very important events. The alert continues until you stop or snooze it."),12,false);strongHint.setTextColor(muted);when.addView(strongHint);
+        strongAlertBox.setOnCheckedChangeListener((button,checked)->{if(checked&&!loadingExisting)requestStrongAlertPermissionIfNeeded();});
+
         when.addView(fieldLabel(tr("تكرار المناسبة","Repeat event")));
         recurrence=new Spinner(this);recurrence.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,Recurrence.labels(this)));when.addView(recurrence,new LinearLayout.LayoutParams(-1,dp(50)));
         TextView repeatHint=label(tr("عادة أسبوعية = أسبوعي، والسنوية وعيد الميلاد وعيد الزواج = سنوي تلقائيًا.","Weekly habit = weekly; Anniversary, Birthday and Wedding anniversary = yearly automatically."),12,false);repeatHint.setTextColor(muted);when.addView(repeatHint);
@@ -103,6 +108,18 @@ public class EditEventActivity extends Activity {
         Button cancel=secondaryButton(tr("إلغاء","Cancel"));root.addView(cancel,new LinearLayout.LayoutParams(-1,dp(50)));cancel.setOnClickListener(v->finish());
 
         setContentView(scroll);
+    }
+
+    private void requestStrongAlertPermissionIfNeeded(){
+        StrongAlertSupport.ensureChannel(this);
+        if(Build.VERSION.SDK_INT>=34&&!StrongAlertSupport.canUseFullScreen(this)){
+            new AlertDialog.Builder(this)
+                    .setTitle(tr("السماح بالتنبيه القوي","Allow strong alerts"))
+                    .setMessage(tr("لإظهار التنبيه فوق شاشة القفل في أندرويد الحديث، اسمح لتطبيق مناسبـاتي باستخدام التنبيهات بملء الشاشة. بدون هذا الإذن سيظل الصوت والتنبيه ظاهرين كإشعار قوي.","To show strong alerts over the lock screen on modern Android, allow Munasabati to use full-screen notifications. Without it, the alarm sound and high-priority notification still work."))
+                    .setNegativeButton(tr("لاحقًا","Later"),null)
+                    .setPositiveButton(tr("فتح الإعدادات","Open settings"),(d,w)->StrongAlertSupport.openFullScreenSettings(this))
+                    .show();
+        }
     }
 
     private String reminderLabel(int m){
@@ -131,13 +148,15 @@ public class EditEventActivity extends Activity {
 
     private void loadExisting(){
         if(id==0)return;EventStore.Event e=EventStore.find(this,id);if(e==null)return;
+        loadingExisting=true;
         title.setText(e.title);details.setText(e.details);eventTime=Recurrence.isRecurring(e)?Recurrence.nextOccurrence(e,System.currentTimeMillis()):e.eventTime;
         lastCategoryPos=Categories.indexOf(e.category);category.setSelection(lastCategoryPos);recurrence.setSelection(Recurrence.indexOf(e.recurrence));
         if(e.color==null||e.color.isEmpty())colorSpinner.setSelection(0);else colorSpinner.setSelection(ColorPalette.indexOf(e.color)+1);
-        favoriteBox.setChecked(e.favorite);pinnedBox.setChecked(e.pinned);
+        favoriteBox.setChecked(e.favorite);pinnedBox.setChecked(e.pinned);strongAlertBox.setChecked(e.strongAlert);
         Set<Integer> active=new HashSet<>(EventStore.reminders(e));for(int i=0;i<reminderValues.length;i++)reminderChecks[i].setChecked(active.contains(reminderValues[i]));
         attachmentUri=e.attachmentUri;attachmentName=e.attachmentName;attachmentType=e.attachmentType;attachBtn.setText(attachmentName.isEmpty()?tr("📎  إضافة صورة أو PDF","📎  Add image or PDF"):"📎  "+attachmentName);
         locationName.setText(e.locationName);locationUrl.setText(e.locationUrl);
+        loadingExisting=false;
     }
 
     private void pickDate(){Calendar c=Calendar.getInstance();c.setTimeInMillis(eventTime);new DatePickerDialog(this,(v,y,m,d)->{Calendar n=Calendar.getInstance();n.setTimeInMillis(eventTime);n.set(y,m,d);eventTime=n.getTimeInMillis();refreshDateTime();},c.get(Calendar.YEAR),c.get(Calendar.MONTH),c.get(Calendar.DAY_OF_MONTH)).show();}
@@ -160,10 +179,11 @@ public class EditEventActivity extends Activity {
         List<EventStore.Event> all=new ArrayList<>(EventStore.load(this));EventStore.Event e=id==0?new EventStore.Event():EventStore.find(this,id);if(e==null)e=new EventStore.Event();
         if(id==0)e.id=System.currentTimeMillis();else ReminderScheduler.cancel(this,id);
         e.title=n;e.category=Categories.CODES[category.getSelectedItemPosition()];e.recurrence=Recurrence.CODES[recurrence.getSelectedItemPosition()];
-        e.color=colorSpinner.getSelectedItemPosition()==0?"":ColorPalette.HEX[colorSpinner.getSelectedItemPosition()-1];e.favorite=favoriteBox.isChecked();e.pinned=pinnedBox.isChecked();
+        e.color=colorSpinner.getSelectedItemPosition()==0?"":ColorPalette.HEX[colorSpinner.getSelectedItemPosition()-1];e.favorite=favoriteBox.isChecked();e.pinned=pinnedBox.isChecked();e.strongAlert=strongAlertBox.isChecked();
         e.details=details.getText().toString().trim();e.eventTime=eventTime;e.remindersCsv=EventStore.remindersCsv(reminders);e.reminderMinutes=reminders.get(0);
         e.attachmentUri=attachmentUri;e.attachmentName=attachmentName;e.attachmentType=attachmentType==null?"":attachmentType;e.locationName=locationName.getText().toString().trim();e.locationUrl=locationUrl.getText().toString().trim();
         long finalId=e.id;all.removeIf(x->x.id==finalId);all.add(e);EventStore.save(this,all);ReminderScheduler.schedule(this,e);
+        if(e.strongAlert)StrongAlertSupport.ensureChannel(this);
         Toast.makeText(this,tr("تم حفظ المناسبة","Event saved"),Toast.LENGTH_SHORT).show();finish();
     }
 
