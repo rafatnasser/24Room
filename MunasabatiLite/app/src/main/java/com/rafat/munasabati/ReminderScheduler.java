@@ -13,6 +13,7 @@ public final class ReminderScheduler {
 
     public static void schedule(Context context,EventStore.Event e){
         if(e==null)return;
+        CalendarIntegration.upsertAndPersist(context,e);
         List<Integer> reminders=EventStore.reminders(e);
         for(int i=0;i<reminders.size();i++)scheduleIndex(context,e,i,reminders.get(i),System.currentTimeMillis());
     }
@@ -33,6 +34,7 @@ public final class ReminderScheduler {
     }
 
     public static void cancel(Context context,long id){
+        CalendarIntegration.deleteLinkedEvent(context,id);
         AlarmManager am=(AlarmManager)context.getSystemService(Context.ALARM_SERVICE);
         for(int i=0;i<20;i++)am.cancel(pendingIntent(context,id,i,"",0L,0,false,0));
         for(int i=0;i<10;i++)am.cancel(pendingIntent(context,id,100+i,"",0L,0,true,i));
