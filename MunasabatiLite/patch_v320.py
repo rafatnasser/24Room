@@ -7,3 +7,8 @@ s=s.replace('root.setBackgroundColor(bg);root.setLayoutDirection(ar()?View.LAYOU
 s=s.replace('root.addView(hero,margin(-1,-2,0,0,0,dp(9)));','root.addView(hero,margin(-1,-2,0,0,0,dp(9)));hero.setAlpha(0f);hero.setTranslationY(dp(-8));hero.animate().alpha(1f).translationY(0f).setDuration(320).start();')
 s=s.replace('if(contentHost==null)return;contentHost.removeAllViews();','if(contentHost==null)return;contentHost.removeAllViews();contentHost.setAlpha(0.86f);contentHost.animate().alpha(1f).setDuration(180).start();')
 p.write_text(s,encoding='utf-8')
+
+settings=Path('app/src/main/java/com/rafat/munasabati/SettingsActivity.java')
+t=settings.read_text(encoding='utf-8')
+t=t.replace('import android.transition.LayoutTransition;','import android.animation.LayoutTransition;')
+settings.write_text(t,encoding='utf-8')
