@@ -61,6 +61,11 @@ public final class CalendarIntegration {
         e.calendarEventId=-1;e.calendarId=-1;
     }
 
+    public static void deleteLinkedEvent(Context c,long appEventId){
+        EventStore.Event e=EventStore.find(c,appEventId);if(e==null)return;deleteExternal(c,e);
+        List<EventStore.Event> all=EventStore.load(c);for(EventStore.Event x:all)if(x.id==appEventId){x.calendarId=-1L;x.calendarEventId=-1L;}EventStore.save(c,all);
+    }
+
     public static int syncAll(Context c){
         if(!enabled(c)||!hasPermission(c)||selectedCalendarId(c)<0)return 0;int ok=0;
         for(EventStore.Event e:EventStore.load(c))if(upsertAndPersist(c,e))ok++;return ok;
@@ -72,7 +77,7 @@ public final class CalendarIntegration {
         v.put(CalendarContract.Events.DESCRIPTION,desc.toString());v.put(CalendarContract.Events.EVENT_LOCATION,e.locationName==null?"":e.locationName);
         v.put(CalendarContract.Events.DTSTART,e.eventTime);v.put(CalendarContract.Events.EVENT_TIMEZONE,TimeZone.getDefault().getID());v.put(CalendarContract.Events.ALL_DAY,0);
         String rule=rrule(e);
-        if(rule.isEmpty()){v.put(CalendarContract.Events.DTEND,e.eventTime+60*60*1000L);v.putNull(CalendarContract.Events.RRULE);}
+        if(rule.isEmpty()){v.put(CalendarContract.Events.DTEND,e.eventTime+60*60*1000L);v.putNull(CalendarContract.Events.RRULE);v.putNull(CalendarContract.Events.DURATION);}
         else{v.put(CalendarContract.Events.DURATION,"PT1H");v.put(CalendarContract.Events.RRULE,rule);v.putNull(CalendarContract.Events.DTEND);}
         return v;
     }
