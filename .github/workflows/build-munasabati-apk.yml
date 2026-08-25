@@ -21,6 +21,12 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Stamp visible app version
+        run: |
+          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' MunasabatiLite/app/build.gradle.kts)
+          test -n "$VERSION"
+          sed -i -E "s/(MUNASABATI  •  PREMIUM  •  )v[0-9.]+/\1v${VERSION}/" MunasabatiLite/app/src/main/java/com/rafat/munasabati/SettingsActivity.java
+          grep 'PREMIUM' MunasabatiLite/app/src/main/java/com/rafat/munasabati/SettingsActivity.java
       - name: Build unsigned release APK
         working-directory: MunasabatiLite
         run: gradle assembleRelease --stacktrace
