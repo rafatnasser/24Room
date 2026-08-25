@@ -16,7 +16,7 @@ public final class EventStore {
         public String recurrence=Recurrence.NONE;
         public String details="";
         public long eventTime;
-        public int reminderMinutes=30; // legacy compatibility
+        public int reminderMinutes=30;
         public String remindersCsv="30";
         public String attachmentUri="";
         public String attachmentName="";
@@ -26,6 +26,7 @@ public final class EventStore {
         public String color="";
         public boolean favorite=false;
         public boolean pinned=false;
+        public boolean strongAlert=false;
     }
 
     public static List<Event> load(Context context){
@@ -68,7 +69,7 @@ public final class EventStore {
             o.put("details",e.details);o.put("eventTime",e.eventTime);o.put("reminderMinutes",e.reminderMinutes);o.put("remindersCsv",e.remindersCsv);
             o.put("attachmentUri",includeAttachmentUri?e.attachmentUri:"");o.put("attachmentName",e.attachmentName);o.put("attachmentType",e.attachmentType);
             o.put("locationName",e.locationName);o.put("locationUrl",e.locationUrl);o.put("color",e.color);
-            o.put("favorite",e.favorite);o.put("pinned",e.pinned);
+            o.put("favorite",e.favorite);o.put("pinned",e.pinned);o.put("strongAlert",e.strongAlert);
         }catch(Exception ignored){}return o;
     }
 
@@ -80,13 +81,13 @@ public final class EventStore {
         e.reminderMinutes=o.optInt("reminderMinutes",30);e.remindersCsv=o.optString("remindersCsv",String.valueOf(e.reminderMinutes));
         e.attachmentUri=o.optString("attachmentUri","");e.attachmentName=o.optString("attachmentName","");e.attachmentType=o.optString("attachmentType","");
         e.locationName=o.optString("locationName","");e.locationUrl=o.optString("locationUrl","");
-        e.color=o.optString("color","");e.favorite=o.optBoolean("favorite",false);e.pinned=o.optBoolean("pinned",false);
+        e.color=o.optString("color","");e.favorite=o.optBoolean("favorite",false);e.pinned=o.optBoolean("pinned",false);e.strongAlert=o.optBoolean("strongAlert",false);
         return e;
     }
 
     public static JSONObject exportJson(Context c,boolean portable){
         JSONObject root=new JSONObject();try{
-            root.put("format","Munasabati");root.put("version",4);
+            root.put("format","Munasabati");root.put("version",5);
             root.put("language",AppSettings.language(c));root.put("hijriOffset",AppSettings.hijriOffset(c));
             root.put("categoryColors",ColorPalette.exportSettings(c));
             JSONArray a=new JSONArray();for(Event e:load(c))a.put(toJsonObject(e,!portable));root.put("events",a);
