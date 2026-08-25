@@ -35,7 +35,7 @@ public final class ColorPalette {
         return c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).getString(category,defaultHex(category));
     }
     public static void setCategoryHex(Context c,String category,String hex){
-        c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(category,hex).apply();
+        c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit().putString(category,hex).apply();WidgetUpdater.updateAll(c);
     }
     public static String eventHex(Context c,EventStore.Event e){
         return e!=null&&e.color!=null&&!e.color.isEmpty()?e.color:categoryHex(c,e==null?"none":e.category);
@@ -53,7 +53,7 @@ public final class ColorPalette {
     }
     public static void importSettings(Context c,JSONObject o){
         if(o==null)return;SharedPreferences.Editor ed=c.getSharedPreferences(PREFS,Context.MODE_PRIVATE).edit();
-        for(String code:Categories.CODES)if(o.has(code))ed.putString(code,o.optString(code,defaultHex(code)));ed.apply();
+        for(String code:Categories.CODES)if(o.has(code))ed.putString(code,o.optString(code,defaultHex(code)));ed.apply();WidgetUpdater.updateAll(c);
     }
     private ColorPalette(){}
 }
