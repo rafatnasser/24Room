@@ -23,7 +23,9 @@ jobs:
           gradle-version: '8.9'
       - name: Apply Munasabati v4 integration
         working-directory: MunasabatiLite
-        run: python3 v4_apply.py
+        run: |
+          python3 v4_apply.py
+          python3 v4_finish.py
       - name: Stamp visible app version
         run: |
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' MunasabatiLite/app/build.gradle.kts)
