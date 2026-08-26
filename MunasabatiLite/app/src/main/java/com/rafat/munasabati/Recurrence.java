@@ -1,73 +1,21 @@
 package com.rafat.munasabati;
 
 import android.content.Context;
+import android.icu.util.IslamicCalendar;
 import java.util.Calendar;
 
 public final class Recurrence {
-    public static final String NONE = "none";
-    public static final String WEEKLY = "weekly";
-    public static final String MONTHLY = "monthly";
-    public static final String YEARLY = "yearly";
-    public static final String[] CODES = {NONE, WEEKLY, MONTHLY, YEARLY};
-
-    public static String label(Context c, String code) {
-        if (WEEKLY.equals(code)) return AppSettings.tr(c, "أسبوعي", "Weekly");
-        if (MONTHLY.equals(code)) return AppSettings.tr(c, "شهري", "Monthly");
-        if (YEARLY.equals(code)) return AppSettings.tr(c, "سنوي", "Yearly");
-        return AppSettings.tr(c, "بدون تكرار", "No repeat");
-    }
-
-    public static String[] labels(Context c) {
-        return new String[]{
-                label(c, NONE), label(c, WEEKLY), label(c, MONTHLY), label(c, YEARLY)
-        };
-    }
-
-    public static int indexOf(String code) {
-        for (int i = 0; i < CODES.length; i++) if (CODES[i].equals(code)) return i;
-        return 0;
-    }
-
-    public static boolean isRecurring(EventStore.Event e) {
-        return e != null && e.recurrence != null && !NONE.equals(e.recurrence);
-    }
-
-    public static long nextOccurrence(EventStore.Event e, long atOrAfter) {
-        if (e == null) return 0L;
-        if (!isRecurring(e)) return e.eventTime;
-
-        Calendar c = Calendar.getInstance();
-        c.setTimeInMillis(e.eventTime);
-        if (c.getTimeInMillis() >= atOrAfter) return c.getTimeInMillis();
-
-        int guard = 0;
-        while (c.getTimeInMillis() < atOrAfter && guard++ < 10000) {
-            if (WEEKLY.equals(e.recurrence)) c.add(Calendar.WEEK_OF_YEAR, 1);
-            else if (MONTHLY.equals(e.recurrence)) c.add(Calendar.MONTH, 1);
-            else if (YEARLY.equals(e.recurrence)) c.add(Calendar.YEAR, 1);
-            else break;
-        }
-        return c.getTimeInMillis();
-    }
-
-    public static long nextReminderOccurrence(EventStore.Event e, long now) {
-        long lead = Math.max(0, e.reminderMinutes) * 60000L;
-        if (!isRecurring(e)) return e.eventTime;
-        return nextOccurrence(e, now + lead + 1000L);
-    }
-
-    public static long firstOccurrenceBetween(EventStore.Event e,long start,long end){
-        if(e==null)return -1L;
-        if(!isRecurring(e))return e.eventTime>=start&&e.eventTime<end?e.eventTime:-1L;
-        long t=nextOccurrence(e,start);
-        return t>=start&&t<end?t:-1L;
-    }
-
-    public static String autoForCategory(String category) {
-        if ("weekly_habit".equals(category)) return WEEKLY;
-        if ("anniversary".equals(category) || "birthday".equals(category) || "wedding_anniversary".equals(category)) return YEARLY;
-        return NONE;
-    }
-
-    private Recurrence() {}
+ public static final String NONE="none",WEEKLY="weekly",BIWEEKLY="biweekly",MONTHLY="monthly",QUARTERLY="quarterly",YEARLY="yearly",FIRST_THURSDAY="first_thursday",LAST_FRIDAY="last_friday",HIJRI_YEARLY="hijri_yearly";
+ public static final String[] CODES={NONE,WEEKLY,BIWEEKLY,MONTHLY,QUARTERLY,YEARLY,FIRST_THURSDAY,LAST_FRIDAY,HIJRI_YEARLY};
+ public static String label(Context c,String x){if(WEEKLY.equals(x))return AppSettings.tr(c,"أسبوعي","Weekly");if(BIWEEKLY.equals(x))return AppSettings.tr(c,"كل أسبوعين","Every 2 weeks");if(MONTHLY.equals(x))return AppSettings.tr(c,"شهري","Monthly");if(QUARTERLY.equals(x))return AppSettings.tr(c,"كل 3 أشهر","Every 3 months");if(YEARLY.equals(x))return AppSettings.tr(c,"سنوي ميلادي","Gregorian yearly");if(FIRST_THURSDAY.equals(x))return AppSettings.tr(c,"أول خميس من كل شهر","First Thursday monthly");if(LAST_FRIDAY.equals(x))return AppSettings.tr(c,"آخر جمعة من كل شهر","Last Friday monthly");if(HIJRI_YEARLY.equals(x))return AppSettings.tr(c,"سنوي هجري","Hijri yearly");return AppSettings.tr(c,"بدون تكرار","No repeat");}
+ public static String[] labels(Context c){String[] a=new String[CODES.length];for(int i=0;i<a.length;i++)a[i]=label(c,CODES[i]);return a;}
+ public static int indexOf(String code){for(int i=0;i<CODES.length;i++)if(CODES[i].equals(code))return i;return 0;}
+ public static boolean isRecurring(EventStore.Event e){return e!=null&&e.recurrence!=null&&!NONE.equals(e.recurrence);}
+ public static long nextOccurrence(EventStore.Event e,long at){if(e==null)return 0;if(!isRecurring(e))return e.eventTime;if(HIJRI_YEARLY.equals(e.recurrence))return nextHijri(e.eventTime,at);if(FIRST_THURSDAY.equals(e.recurrence))return nthMonthly(e.eventTime,at,Calendar.THURSDAY,true);if(LAST_FRIDAY.equals(e.recurrence))return nthMonthly(e.eventTime,at,Calendar.FRIDAY,false);Calendar c=Calendar.getInstance();c.setTimeInMillis(e.eventTime);if(c.getTimeInMillis()>=at)return c.getTimeInMillis();int g=0;while(c.getTimeInMillis()<at&&g++<10000){if(WEEKLY.equals(e.recurrence))c.add(Calendar.WEEK_OF_YEAR,1);else if(BIWEEKLY.equals(e.recurrence))c.add(Calendar.WEEK_OF_YEAR,2);else if(MONTHLY.equals(e.recurrence))c.add(Calendar.MONTH,1);else if(QUARTERLY.equals(e.recurrence))c.add(Calendar.MONTH,3);else if(YEARLY.equals(e.recurrence))c.add(Calendar.YEAR,1);else break;}return c.getTimeInMillis();}
+ private static long nthMonthly(long original,long at,int dow,boolean first){Calendar base=Calendar.getInstance();base.setTimeInMillis(original);Calendar month=Calendar.getInstance();month.setTimeInMillis(Math.max(original,at));month.set(Calendar.DAY_OF_MONTH,1);for(int guard=0;guard<2400;guard++){Calendar c=(Calendar)month.clone();if(first){int d=(dow-c.get(Calendar.DAY_OF_WEEK)+7)%7;c.add(Calendar.DAY_OF_MONTH,d);}else{c.set(Calendar.DAY_OF_MONTH,c.getActualMaximum(Calendar.DAY_OF_MONTH));int d=(c.get(Calendar.DAY_OF_WEEK)-dow+7)%7;c.add(Calendar.DAY_OF_MONTH,-d);}c.set(Calendar.HOUR_OF_DAY,base.get(Calendar.HOUR_OF_DAY));c.set(Calendar.MINUTE,base.get(Calendar.MINUTE));c.set(Calendar.SECOND,base.get(Calendar.SECOND));c.set(Calendar.MILLISECOND,0);if(c.getTimeInMillis()>=original&&c.getTimeInMillis()>=at)return c.getTimeInMillis();month.add(Calendar.MONTH,1);}return original;}
+ private static long nextHijri(long original,long at){try{IslamicCalendar src=new IslamicCalendar();src.setTimeInMillis(original);int month=src.get(IslamicCalendar.MONTH),day=src.get(IslamicCalendar.DAY_OF_MONTH),hour=src.get(IslamicCalendar.HOUR_OF_DAY),minute=src.get(IslamicCalendar.MINUTE);IslamicCalendar cur=new IslamicCalendar();cur.setTimeInMillis(at);int y=cur.get(IslamicCalendar.YEAR);for(int i=0;i<10;i++,y++){IslamicCalendar x=new IslamicCalendar();x.clear();x.set(IslamicCalendar.YEAR,y);x.set(IslamicCalendar.MONTH,month);x.set(IslamicCalendar.DAY_OF_MONTH,day);x.set(IslamicCalendar.HOUR_OF_DAY,hour);x.set(IslamicCalendar.MINUTE,minute);long t=x.getTimeInMillis();if(t>=original&&t>=at)return t;}}catch(Exception ignored){}Calendar c=Calendar.getInstance();c.setTimeInMillis(original);while(c.getTimeInMillis()<at)c.add(Calendar.YEAR,1);return c.getTimeInMillis();}
+ public static long nextReminderOccurrence(EventStore.Event e,long now){long lead=Math.max(0,e.reminderMinutes)*60000L;return isRecurring(e)?nextOccurrence(e,now+lead+1000):e.eventTime;}
+ public static long firstOccurrenceBetween(EventStore.Event e,long start,long end){if(e==null)return-1;if(!isRecurring(e))return e.eventTime>=start&&e.eventTime<end?e.eventTime:-1;long t=nextOccurrence(e,start);return t>=start&&t<end?t:-1;}
+ public static String autoForCategory(String c){if("weekly_habit".equals(c))return WEEKLY;if("anniversary".equals(c)||"birthday".equals(c)||"wedding_anniversary".equals(c))return YEARLY;if("mawlid".equals(c)||"eid_fitr".equals(c)||"eid_adha".equals(c)||"martyrdom".equals(c)||"fatiha".equals(c)||"fortieth".equals(c))return HIJRI_YEARLY;return NONE;}
+ private Recurrence(){}
 }
