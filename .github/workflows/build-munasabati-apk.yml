@@ -32,6 +32,7 @@ jobs:
           python3 v43_finish.py
           python3 v44_apply.py
           python3 v45_apply.py
+          python3 v451_apply.py
       - name: Stamp visible app version
         run: |
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' MunasabatiLite/app/build.gradle.kts)
@@ -57,4 +58,3 @@ jobs:
         with:
           name: Android-APK-Signing-Tool
           path: apksig.jar
-          if-no-files-found: error
