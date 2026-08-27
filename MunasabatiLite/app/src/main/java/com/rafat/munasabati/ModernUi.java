@@ -74,7 +74,10 @@ public final class ModernUi {
         v.setOnTouchListener((view,event)->{
             int a=event.getActionMasked();
             if(a==MotionEvent.ACTION_DOWN&&UiFeedback.motionEnabled(view.getContext()))view.animate().scaleX(.975f).scaleY(.975f).alpha(.93f).setDuration(60).start();
-            else if(a==MotionEvent.ACTION_UP||a==MotionEvent.ACTION_CANCEL){if(UiFeedback.motionEnabled(view.getContext()))view.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(110).start();if(a==MotionEvent.ACTION_UP)UiFeedback.click(view);}return false;
+            else if(a==MotionEvent.ACTION_UP||a==MotionEvent.ACTION_CANCEL){
+                if(UiFeedback.motionEnabled(view.getContext()))view.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(110).start();
+                if(a==MotionEvent.ACTION_UP){if("preview_feedback".equals(view.getTag()))UiFeedback.preview(view);else UiFeedback.click(view);}
+            }return false;
         });
     }
 
