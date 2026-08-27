@@ -33,6 +33,9 @@ jobs:
           python3 v44_apply.py
           python3 v45_apply.py
           python3 v451_apply.py
+          python3 v452_apply.py
+          grep -q 'setDecorFitsSystemWindows(false)' app/src/main/java/com/rafat/munasabati/ModernUi.java
+          grep -q 'Type.displayCutout' app/src/main/java/com/rafat/munasabati/ModernUi.java
       - name: Stamp visible app version
         run: |
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' MunasabatiLite/app/build.gradle.kts)
