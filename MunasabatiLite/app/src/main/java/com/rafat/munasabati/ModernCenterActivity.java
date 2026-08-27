@@ -14,7 +14,7 @@ public class ModernCenterActivity extends V4CenterActivity {
     private int accent=Color.rgb(208,151,56);
 
     @Override public void onCreate(Bundle b){
-        // Intentionally do not call V4CenterActivity.onCreate(): we reuse its feature methods, not its old list UI.
+        super.onCreate(b); // preserve Activity lifecycle; the modern content below replaces the legacy view.
         V4Theme.apply(this);primary=V4Theme.primary(this);getWindow().setStatusBarColor(primary);
         ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(ModernUi.screenBackground(this));
         root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(14),dp(12),dp(14),dp(28));root.setLayoutDirection(ar()?View.LAYOUT_DIRECTION_RTL:View.LAYOUT_DIRECTION_LTR);scroll.addView(root);
