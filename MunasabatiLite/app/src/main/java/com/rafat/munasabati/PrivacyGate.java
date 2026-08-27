@@ -1,0 +1,9 @@
+package com.rafat.munasabati;
+
+import android.app.*;import android.hardware.biometrics.BiometricPrompt;import android.os.*;import android.text.InputType;import android.widget.EditText;import java.util.concurrent.Executor;
+
+public final class PrivacyGate{
+ public static void run(Activity a,Runnable action){if(a==null||action==null)return;if(!a.getSharedPreferences("munasabati_v4",0).getBoolean("lock_enabled",false)){action.run();return;}if(Build.VERSION.SDK_INT>=28){try{Executor ex=a.getMainExecutor();BiometricPrompt p=new BiometricPrompt.Builder(a).setTitle(AppSettings.tr(a,"تأكيد الهوية","Confirm identity")).setSubtitle(AppSettings.tr(a,"استخدم البصمة أو الوجه","Use fingerprint or face")).setNegativeButton(AppSettings.tr(a,"استخدام PIN","Use PIN"),ex,(d,w)->pin(a,action)).build();p.authenticate(new CancellationSignal(),ex,new BiometricPrompt.AuthenticationCallback(){@Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult r){action.run();}@Override public void onAuthenticationError(int c,CharSequence m){}});return;}catch(Exception ignored){}}pin(a,action);}
+ private static void pin(Activity a,Runnable action){EditText e=new EditText(a);e.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_VARIATION_PASSWORD);e.setHint("PIN");AlertDialog d=new AlertDialog.Builder(a).setTitle(AppSettings.tr(a,"أدخل رمز PIN","Enter PIN")).setView(e).setNegativeButton(AppSettings.tr(a,"إلغاء","Cancel"),null).setPositiveButton(AppSettings.tr(a,"متابعة","Continue"),null).create();d.setOnShowListener(x->d.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String h=a.getSharedPreferences("munasabati_v4",0).getString("pin_hash","");if(h.equals(LauncherActivity.hash(e.getText().toString()))){d.dismiss();action.run();}else{e.setError(AppSettings.tr(a,"رمز غير صحيح","Incorrect PIN"));e.setText("");}}));d.show();}
+ private PrivacyGate(){}
+}
