@@ -16,7 +16,8 @@ def sub(path, pattern, repl):
     p=Path(path)
     if not p.exists(): return False
     s=p.read_text(encoding='utf-8')
-    n=re.subn(pattern,repl,s,flags=re.S)
+    # Use a callable replacement so Java escape sequences such as \n are preserved literally.
+    n=re.subn(pattern,lambda m: repl,s,flags=re.S)
     if n[1]: p.write_text(n[0],encoding='utf-8')
     return bool(n[1])
 
