@@ -21,6 +21,7 @@
         </activity>
         <activity android:name=".MainActivity" android:exported="false"/>
         <activity android:name=".V4CenterActivity" android:exported="false"/>
+        <activity android:name=".ModernCenterActivity" android:exported="false"/>
         <activity android:name=".TemplateChooserActivity" android:exported="false"/>
         <activity android:name=".GuestManagerActivity" android:exported="false"/>
         <activity android:name=".SyncCenterActivity" android:exported="false"/>
