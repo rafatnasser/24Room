@@ -35,10 +35,12 @@ jobs:
           python3 v451_apply.py
           python3 v452_apply.py
           python3 v453_apply.py
+          python3 v454_apply.py
           grep -q 'setDecorFitsSystemWindows(false)' app/src/main/java/com/rafat/munasabati/ModernUi.java
           grep -q 'Type.displayCutout' app/src/main/java/com/rafat/munasabati/ModernUi.java
           grep -q 'renderPreviousHome' app/src/main/java/com/rafat/munasabati/MainActivity.java
-          grep -q 'المناسبات السابقة' app/src/main/java/com/rafat/munasabati/MainActivity.java
+          grep -q 'requestUiRefresh' app/src/main/java/com/rafat/munasabati/MainActivity.java
+          grep -q 'scheduleMinuteBoundaryRefresh' app/src/main/java/com/rafat/munasabati/MainActivity.java
       - name: Stamp visible app version
         run: |
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' MunasabatiLite/app/build.gradle.kts)
