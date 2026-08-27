@@ -27,6 +27,7 @@ jobs:
           python3 v4_apply.py
           python3 v4_finish.py
           python3 v41_apply.py
+          python3 v42_apply.py
       - name: Stamp visible app version
         run: |
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' MunasabatiLite/app/build.gradle.kts)
