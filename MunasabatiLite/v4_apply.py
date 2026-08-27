@@ -46,20 +46,20 @@ patch(edit,
 'if(m==30)return tr("قبل 30 دقيقة","30 min before");if(m==60)',
 'if(m==30)return tr("قبل 30 دقيقة","30 min before");if(m==15)return tr("قبل 15 دقيقة","15 min before");if(m==60)')
 
-# Main widget diagnostic timestamp and extra widgets refresh after all event mutations.
+# Refined WidgetUpdater already owns privacy + extra-widget refresh. Keep old patches optional.
 widget='app/src/main/java/com/rafat/munasabati/WidgetUpdater.java'
 patch(widget,
 'for(int id:ids)update(context,manager,id);\n    }',
-'for(int id:ids)update(context,manager,id);context.getSharedPreferences("munasabati_v4",0).edit().putLong("widget_last_update",System.currentTimeMillis()).apply();refreshExtras(context,manager);\n    }')
+'for(int id:ids)update(context,manager,id);context.getSharedPreferences("munasabati_v4",0).edit().putLong("widget_last_update",System.currentTimeMillis()).apply();refreshExtras(context,manager);\n    }',required=False)
 patch(widget,
 '    private static int rowsForSize(Bundle options){',
-'    private static void refreshExtras(Context c,AppWidgetManager m){int[] a=m.getAppWidgetIds(new ComponentName(c,MiniWidgetProvider.class));for(int id:a)ExtraWidgetUpdater.mini(c,m,id);int[] b=m.getAppWidgetIds(new ComponentName(c,CountdownWidgetProvider.class));for(int id:b)ExtraWidgetUpdater.countdown(c,m,id);int[] d=m.getAppWidgetIds(new ComponentName(c,MonthWidgetProvider.class));for(int id:d)ExtraWidgetUpdater.month(c,m,id);}\n\n    private static int rowsForSize(Bundle options){')
+'    private static void refreshExtras(Context c,AppWidgetManager m){int[] a=m.getAppWidgetIds(new ComponentName(c,MiniWidgetProvider.class));for(int id:a)ExtraWidgetUpdater.mini(c,m,id);int[] b=m.getAppWidgetIds(new ComponentName(c,CountdownWidgetProvider.class));for(int id:b)ExtraWidgetUpdater.countdown(c,m,id);int[] d=m.getAppWidgetIds(new ComponentName(c,MonthWidgetProvider.class));for(int id:d)ExtraWidgetUpdater.month(c,m,id);}\n\n    private static int rowsForSize(Bundle options){',required=False)
 
-# Boot: restart location reminder checks too.
+# Boot: restart location and built-in Ahl al-Bayt reminder checks too.
 boot='app/src/main/java/com/rafat/munasabati/BootReceiver.java'
 p=Path(boot);s=p.read_text(encoding='utf-8')
-if 'LocationReminderScheduler.schedule' not in s:
-    s=s.replace('AutoBackupScheduler.schedule(context);','AutoBackupScheduler.schedule(context);LocationReminderScheduler.schedule(context);')
-    p.write_text(s,encoding='utf-8')
+if 'LocationReminderScheduler.schedule' not in s:s=s.replace('AutoBackupScheduler.schedule(context);','AutoBackupScheduler.schedule(context);LocationReminderScheduler.schedule(context);')
+if 'AhlBaytReminderScheduler.schedule' not in s:s=s.replace('AutoBackupScheduler.schedule(context);','AutoBackupScheduler.schedule(context);AhlBaytReminderScheduler.schedule(context);')
+p.write_text(s,encoding='utf-8')
 
 print('v4 patches applied')
