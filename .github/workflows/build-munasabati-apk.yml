@@ -38,6 +38,7 @@ jobs:
           python3 v454_apply.py
           python3 v455_apply.py
           python3 v456_apply.py
+          python3 v46_apply.py
           grep -q 'setDecorFitsSystemWindows(false)' app/src/main/java/com/rafat/munasabati/ModernUi.java
           grep -q 'Type.displayCutout' app/src/main/java/com/rafat/munasabati/ModernUi.java
           grep -q 'renderUpcomingHome' app/src/main/java/com/rafat/munasabati/MainActivity.java
@@ -46,6 +47,8 @@ jobs:
           grep -q 'requestUiRefresh' app/src/main/java/com/rafat/munasabati/MainActivity.java
           grep -q 'scheduleMinuteBoundaryRefresh' app/src/main/java/com/rafat/munasabati/MainActivity.java
           grep -q 'Delete event' app/src/main/java/com/rafat/munasabati/MainActivity.java
+          grep -q 'private ScrollView mainScroll' app/src/main/java/com/rafat/munasabati/MainActivity.java
+          grep -q 'onRestoreInstanceState' app/src/main/java/com/rafat/munasabati/MainActivity.java
       - name: Stamp visible app version
         run: |
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' MunasabatiLite/app/build.gradle.kts)
