@@ -21,13 +21,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Apply Munasabati v4 integration
+      - name: Apply Munasabati integration
         working-directory: MunasabatiLite
         run: |
           python3 v4_apply.py
           python3 v4_finish.py
           python3 v41_apply.py
           python3 v42_apply.py
+          python3 v43_apply.py
       - name: Stamp visible app version
         run: |
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' MunasabatiLite/app/build.gradle.kts)
