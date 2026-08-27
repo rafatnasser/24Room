@@ -8,8 +8,8 @@ android {
         applicationId = "com.rafat.munasabati"
         minSdk = 26
         targetSdk = 35
-        versionCode = 24
-        versionName = "4.5.6"
+        versionCode = 25
+        versionName = "4.6.0"
     }
 
     compileOptions {
