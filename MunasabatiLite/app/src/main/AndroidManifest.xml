@@ -25,6 +25,11 @@
         <activity android:name=".TemplateChooserActivity" android:exported="false"/>
         <activity android:name=".GuestManagerActivity" android:exported="false"/>
         <activity android:name=".SyncCenterActivity" android:exported="false"/>
+        <activity android:name=".SyncConflictActivity" android:exported="false"/>
+        <activity android:name=".AhlBaytCenterActivity" android:exported="false"/>
+        <activity android:name=".SmartReminderSettingsActivity" android:exported="false"/>
+        <activity android:name=".AlertDiagnosticsActivity" android:exported="false"/>
+        <activity android:name=".PrivacySettingsActivity" android:exported="false"/>
         <activity android:name=".SettingsActivity" android:exported="false"/>
         <activity android:name=".StrongAlertActivity" android:exported="false" android:excludeFromRecents="true" android:launchMode="singleTop" android:showWhenLocked="true" android:turnScreenOn="true"/>
         <activity android:name=".EditEventActivity" android:exported="false"/>
@@ -35,6 +40,7 @@
         <receiver android:name=".AutoBackupReceiver" android:exported="false"/>
         <receiver android:name=".CalendarSyncReceiver" android:exported="false"/>
         <receiver android:name=".LocationReminderReceiver" android:exported="false"/>
+        <receiver android:name=".AhlBaytReminderReceiver" android:exported="false"/>
         <receiver android:name=".MunasabatiWidgetProvider" android:exported="true">
             <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE"/><action android:name="android.intent.action.DATE_CHANGED"/><action android:name="android.intent.action.TIME_SET"/><action android:name="android.intent.action.TIMEZONE_CHANGED"/><action android:name="android.intent.action.LOCALE_CHANGED"/></intent-filter>
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/munasabati_widget_info"/>
