@@ -1,0 +1,68 @@
+name: Munasabati v5 isolated build
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.munasabati-v5/**'
+      - '.github/workflows/munasabati-v5-bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  v5-beta:
+    name: Build and test Munasabati v5 Beta
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout isolated branch
+        uses: actions/checkout@v4
+
+      - name: Restore and verify source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5/source.part*.b64 > /tmp/munasabati-v5.b64
+          base64 --decode /tmp/munasabati-v5.b64 > /tmp/Munasabati-v5-source.zip
+          echo "477778e8e1a42206f5b1ae8893cd7bcd04e379983cab6072e03fc8d909e4a271  /tmp/Munasabati-v5-source.zip" | sha256sum -c -
+          mkdir -p v5src
+          unzip -q /tmp/Munasabati-v5-source.zip -d v5src
+          test -f v5src/settings.gradle.kts
+          test -f v5src/app/build.gradle.kts
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        shell: bash
+        run: sdkmanager "platforms;android-37" "build-tools;36.0.0"
+
+      - name: Set up Gradle 9.3.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Run v5 unit tests
+        working-directory: v5src
+        run: gradle :app:testBetaDebugUnitTest --stacktrace --no-daemon
+
+      - name: Build v5 Beta APK
+        working-directory: v5src
+        run: gradle :app:assembleBetaDebug --stacktrace --no-daemon
+
+      - name: Upload Beta APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5-beta-debug
+          path: v5src/app/build/outputs/apk/beta/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
