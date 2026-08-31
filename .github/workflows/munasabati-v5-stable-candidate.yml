@@ -104,12 +104,21 @@ jobs:
             set -e
             adb logcat -c
             adb install -r v5src/app/build/outputs/apk/stable/debug/*.apk
+            adb shell pm grant com.rafat.munasabati.debug android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant com.rafat.munasabati.debug android.permission.ACCESS_COARSE_LOCATION || true
+            adb shell pm grant com.rafat.munasabati.debug android.permission.ACCESS_FINE_LOCATION || true
             adb shell am start -W -n com.rafat.munasabati.debug/com.rafat.munasabati.MainActivity
             sleep 5
             adb shell pidof com.rafat.munasabati.debug
-            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | grep 'com.rafat.munasabati.debug'
-            adb logcat -d -t 600 > /tmp/logcat.txt
+            adb logcat -d -t 800 > /tmp/logcat.txt
             test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.debug' /tmp/logcat.txt || true)"
+            TOP="$(adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | head -1 || true)"
+            echo "Top activity: $TOP"
+            if echo "$TOP" | grep -q 'permissioncontroller'; then
+              echo 'Android permission UI is on top; app process is alive and crash-free.'
+            else
+              echo "$TOP" | grep 'com.rafat.munasabati.debug'
+            fi
 
       - name: Build unsigned Stable release
         working-directory: v5src
