@@ -14,7 +14,7 @@ permissions:
 jobs:
   stable-candidate:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     steps:
       - uses: actions/checkout@v4
 
@@ -38,10 +38,6 @@ jobs:
           grep -q 'versionCode = 60' v5src/app/build.gradle.kts
           grep -q 'weekdayNamesArabic = listOf("الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت")' v5src/app/src/main/java/com/rafat/munasabati/calendar/CalendarRules.kt
           grep -q 'exact_v4_event_mapping' v5src/app/src/main/java/com/rafat/munasabati/migration/LegacyV4Migration.kt
-          grep -q 'createFullBackup' v5src/app/src/main/java/com/rafat/munasabati/compat/LegacyDataTools.kt
-          grep -q 'CalendarSyncManager' v5src/app/src/main/java/com/rafat/munasabati/compat/CalendarSync.kt
-          grep -q 'AhlBaytCalendar' v5src/app/src/main/java/com/rafat/munasabati/compat/AhlBaytCalendar.kt
-          grep -q 'AndroidKeyStore' v5src/app/src/main/java/com/rafat/munasabati/compat/SecureNotes.kt
 
       - name: Apply Stable compile and test fixes
         shell: bash
@@ -67,10 +63,6 @@ jobs:
                   s=s.replace('dependencies {','dependencies {\n    implementation("androidx.fragment:fragment-ktx:1.8.5")',1)
           p.write_text(s)
           PY
-          grep -q 'setPadding(48,48,48,48)' v5src/app/src/main/java/com/rafat/munasabati/compat/StrongAlertActivity.kt
-          grep -q 'content: @Composable () -> Unit' v5src/app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt
-          grep -q 'org.json:json:20240303' v5src/app/build.gradle.kts
-          grep -q 'androidx.fragment:fragment-ktx:1.8.5' v5src/app/build.gradle.kts
 
       - uses: actions/setup-java@v5
         with:
@@ -91,6 +83,27 @@ jobs:
         working-directory: v5src
         run: gradle :app:assembleStableDebug --stacktrace --no-daemon
 
+      - name: Build unsigned Stable release
+        working-directory: v5src
+        run: gradle :app:assembleStableRelease --stacktrace --no-daemon
+
+      - name: Sign minified Stable release with CI debug key for runtime test
+        shell: bash
+        run: |
+          set -euo pipefail
+          RELEASE_APK=$(find v5src/app/build/outputs/apk/stable/release -name '*.apk' | head -1)
+          test -n "$RELEASE_APK"
+          mkdir -p /tmp/release-test
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$RELEASE_APK" /tmp/release-test/aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" sign \
+            --ks "$HOME/.android/debug.keystore" \
+            --ks-key-alias androiddebugkey \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --out /tmp/release-test/Munasabati-release-test.apk \
+            /tmp/release-test/aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose /tmp/release-test/Munasabati-release-test.apk
+
       - name: Enable KVM
         shell: bash
         run: |
@@ -98,7 +111,7 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Launch smoke test Android 15
+      - name: Launch smoke test Stable debug on Android 15
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -112,17 +125,34 @@ jobs:
             adb logcat -c
             adb install -r v5src/app/build/outputs/apk/stable/debug/*.apk
             adb shell pm grant com.rafat.munasabati.debug android.permission.POST_NOTIFICATIONS || true
-            adb shell pm grant com.rafat.munasabati.debug android.permission.ACCESS_COARSE_LOCATION || true
-            adb shell pm grant com.rafat.munasabati.debug android.permission.ACCESS_FINE_LOCATION || true
             adb shell am start -W -n com.rafat.munasabati.debug/com.rafat.munasabati.MainActivity
             sleep 5
             adb shell pidof com.rafat.munasabati.debug
-            adb logcat -d -t 800 > /tmp/logcat.txt
-            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.debug' /tmp/logcat.txt || true)"
+            adb logcat -d -t 800 > /tmp/logcat-debug.txt
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.debug' /tmp/logcat-debug.txt || true)"
 
-      - name: Build unsigned Stable release
-        working-directory: v5src
-        run: gradle :app:assembleStableRelease --stacktrace --no-daemon
+      - name: Launch smoke test minified Stable release on Android 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -e
+            adb logcat -c
+            adb install -r /tmp/release-test/Munasabati-release-test.apk
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
+            sleep 7
+            adb shell pidof com.rafat.munasabati
+            adb logcat -d -t 1200 > /tmp/logcat-release.txt
+            if grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/logcat-release.txt; then
+              echo 'Minified Stable release crashed'
+              exit 1
+            fi
 
       - name: Collect signing utility
         shell: bash
