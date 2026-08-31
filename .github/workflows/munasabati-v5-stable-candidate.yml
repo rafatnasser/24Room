@@ -1,0 +1,111 @@
+name: Munasabati v5 Stable Candidate
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.munasabati-v5-stable/**'
+      - '.github/workflows/munasabati-v5-stable-candidate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stable-candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore v5 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5/source.part*.b64 > /tmp/base.b64
+          base64 --decode /tmp/base.b64 > /tmp/base.zip
+          echo "a1717136bd5d402a65cc8a6b8341c83c7ef74d6b0cf19650b784dc12d42ce34f  /tmp/base.zip" | sha256sum -c -
+          mkdir v5src
+          unzip -q /tmp/base.zip -d v5src
+          cat .munasabati-v5-beta2/overlay.part*.b64 > /tmp/beta2.b64
+          base64 --decode /tmp/beta2.b64 > /tmp/beta2.tgz
+          echo "f006f8def9552dddef974ff56e91856da38d3e6144896d0622132deb8c91b707  /tmp/beta2.tgz" | sha256sum -c -
+          tar -xzf /tmp/beta2.tgz -C v5src
+          cat .munasabati-v5-stable/overlay.part*.b64 > /tmp/stable.b64
+          base64 --decode /tmp/stable.b64 > /tmp/stable.tgz
+          echo "995d93371091cb4cbce75d439d601b906899d39bafca1e04af29287138a64419  /tmp/stable.tgz" | sha256sum -c -
+          tar -xzf /tmp/stable.tgz -C v5src
+          grep -q 'versionCode = 60' v5src/app/build.gradle.kts
+          grep -q 'weekdayNamesArabic = listOf("الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت")' v5src/app/src/main/java/com/rafat/munasabati/calendar/CalendarRules.kt
+          grep -q 'exact_v4_event_mapping' v5src/app/src/main/java/com/rafat/munasabati/migration/LegacyV4Migration.kt
+          grep -q 'createFullBackup' v5src/app/src/main/java/com/rafat/munasabati/compat/LegacyDataTools.kt
+          grep -q 'CalendarSyncManager' v5src/app/src/main/java/com/rafat/munasabati/compat/CalendarSync.kt
+          grep -q 'AhlBaytCalendar' v5src/app/src/main/java/com/rafat/munasabati/compat/AhlBaytCalendar.kt
+          grep -q 'AndroidKeyStore' v5src/app/src/main/java/com/rafat/munasabati/compat/SecureNotes.kt
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Unit tests
+        working-directory: v5src
+        run: gradle :app:testStableDebugUnitTest --stacktrace --no-daemon
+
+      - name: Build Stable debug for launch test
+        working-directory: v5src
+        run: gradle :app:assembleStableDebug --stacktrace --no-daemon
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch smoke test Android 15
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -e
+            adb logcat -c
+            adb install -r v5src/app/build/outputs/apk/stable/debug/*.apk
+            adb shell am start -W -n com.rafat.munasabati.debug/com.rafat.munasabati.MainActivity
+            sleep 5
+            adb shell pidof com.rafat.munasabati.debug
+            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | grep 'com.rafat.munasabati.debug'
+            adb logcat -d -t 600 > /tmp/logcat.txt
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.debug' /tmp/logcat.txt || true)"
+
+      - name: Build unsigned Stable release
+        working-directory: v5src
+        run: gradle :app:assembleStableRelease --stacktrace --no-daemon
+
+      - name: Collect signing utility
+        shell: bash
+        run: |
+          mkdir -p signing-tool
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" signing-tool/apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" signing-tool/zipalign
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5-stable-unsigned
+          path: |
+            v5src/app/build/outputs/apk/stable/release/*.apk
+            signing-tool/apksigner.jar
+            signing-tool/zipalign
+          if-no-files-found: error
+          retention-days: 14
