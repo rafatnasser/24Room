@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   v5-beta:
-    name: Build, test and launch Munasabati v5 Beta 2
+    name: Build, test and launch Munasabati v5 Beta 3
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -61,7 +61,7 @@ jobs:
           p.write_text(s)
           PY
 
-      - name: Apply Beta 2 RTL and v4 retention overlay
+      - name: Apply RTL and v4 retention overlay
         shell: bash
         run: |
           set -euo pipefail
@@ -71,7 +71,25 @@ jobs:
           tar -xzf /tmp/v5-beta2-overlay.tgz -C v5src
           grep -q 'LayoutDirection.Rtl' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
           grep -q 'exact_v4_event_mapping' v5src/app/src/main/java/com/rafat/munasabati/migration/LegacyV4Migration.kt
-          grep -q 'versionNameSuffix = "-beta.2"' v5src/app/build.gradle.kts
+
+      - name: Make Beta 3 a clean stable package
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('v5src/app/build.gradle.kts')
+          s=p.read_text()
+          s=s.replace('versionCode = 52','versionCode = 53')
+          s=s.replace('versionNameSuffix = "-beta.2"','versionNameSuffix = "-beta.3"')
+          s=s.replace('applicationIdSuffix = ".debug"','applicationIdSuffix = ""')
+          p.write_text(s)
+          b=Path('v5src/app/src/beta/res/values/strings.xml')
+          b.parent.mkdir(parents=True, exist_ok=True)
+          b.write_text('<resources>\n    <string name="app_name">مناسباتي Beta 3</string>\n</resources>\n')
+          PY
+          grep -q 'versionCode = 53' v5src/app/build.gradle.kts
+          grep -q 'versionNameSuffix = "-beta.3"' v5src/app/build.gradle.kts
+          grep -q 'applicationIdSuffix = ""' v5src/app/build.gradle.kts
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
@@ -119,17 +137,20 @@ jobs:
             set -e
             adb logcat -c
             adb install -r v5src/app/build/outputs/apk/beta/debug/*.apk
-            adb shell pm grant com.rafat.munasabati.beta.debug android.permission.POST_NOTIFICATIONS || true
-            adb shell am start -W -n com.rafat.munasabati.beta.debug/com.rafat.munasabati.MainActivity
+            adb shell pm grant com.rafat.munasabati.beta android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n com.rafat.munasabati.beta/com.rafat.munasabati.MainActivity
             sleep 5
-            adb shell pidof com.rafat.munasabati.beta.debug
-            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | grep 'com.rafat.munasabati.beta.debug'
-            if adb logcat -d -t 400 | grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.beta.debug'; then exit 1; fi
+            adb shell pidof com.rafat.munasabati.beta
+            adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | grep 'com.rafat.munasabati.beta'
+            if adb logcat -d -t 500 | grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.beta'; then
+              echo 'Fatal exception detected during Beta 3 launch'
+              exit 1
+            fi
 
       - name: Upload Beta APK
         uses: actions/upload-artifact@v4
         with:
-          name: Munasabati-v5-beta2-rtl-smoke-tested
+          name: Munasabati-v5-beta3-clean-smoke-tested
           path: v5src/app/build/outputs/apk/beta/debug/*.apk
           if-no-files-found: error
           retention-days: 14
