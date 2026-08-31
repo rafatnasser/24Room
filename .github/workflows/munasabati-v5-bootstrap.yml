@@ -33,6 +33,29 @@ jobs:
           test -f v5src/settings.gradle.kts
           test -f v5src/app/build.gradle.kts
 
+      - name: Pin AndroidX to API 36 compatible line
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('v5src/app/build.gradle.kts')
+          s = p.read_text()
+          replacements = {
+              'androidx.compose:compose-bom:2026.08.00': 'androidx.compose:compose-bom:2026.06.01',
+              'androidx.core:core-ktx:1.19.0': 'androidx.core:core-ktx:1.17.0',
+              'androidx.activity:activity-compose:1.13.0': 'androidx.activity:activity-compose:1.11.0',
+              'androidx.lifecycle:lifecycle-runtime-ktx:2.11.0': 'androidx.lifecycle:lifecycle-runtime-ktx:2.10.0',
+              'androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0': 'androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0',
+              'androidx.work:work-runtime:2.11.2': 'androidx.work:work-runtime:2.10.5',
+          }
+          for old, new in replacements.items():
+              if old not in s:
+                  raise SystemExit(f'Missing expected dependency: {old}')
+              s = s.replace(old, new)
+          p.write_text(s)
+          PY
+          grep -E 'compose-bom|core-ktx|activity-compose|lifecycle-|work-runtime' v5src/app/build.gradle.kts
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
