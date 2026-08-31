@@ -1,0 +1,229 @@
+name: Munasabati v5.0.3 Identity + UI Sound Gate
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.github/workflows/munasabati-v5.0.3-identity-sound.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  v503-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore exact passed v5.0.2 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502-brand/source.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/v502.tgz
+          echo "35a933424119294e80c930a5f14fb6bf7c4e607a1cdcb7c505716a96c076d2e0  /tmp/v502.tgz" | sha256sum -c -
+          mkdir -p v5src
+          tar -xzf /tmp/v502.tgz -C v5src
+
+      - name: Apply v5.0.3 requested fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('v5src')
+
+          p=root/'app/build.gradle.kts'
+          s=p.read_text().replace('versionCode = 62','versionCode = 63').replace('versionName = "5.0.2"','versionName = "5.0.3"')
+          p.write_text(s)
+
+          p=root/'app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt'
+          s=p.read_text()
+          s=s.replace('import android.media.RingtoneManager\n','import android.media.RingtoneManager\nimport android.media.AudioManager\nimport android.media.ToneGenerator\nimport android.os.Handler\nimport android.os.Looper\n')
+          s=s.replace('    fun hapticEnabled(): Boolean = bool("haptic_enabled", true)\n','    fun uiSoundEnabled(): Boolean = bool("ui_sound_enabled", true)\n    fun setUiSoundEnabled(value: Boolean) { prefs.edit().putBoolean("ui_sound_enabled", value).apply() }\n\n    fun hapticEnabled(): Boolean = bool("haptic_enabled", true)\n')
+          block='''\n    fun uiClick() {\n        if (uiSoundEnabled()) {\n            runCatching {\n                val audio = context.getSystemService(AudioManager::class.java)\n                if (audio.ringerMode != AudioManager.RINGER_MODE_SILENT) {\n                    val tone = ToneGenerator(AudioManager.STREAM_SYSTEM, 72)\n                    tone.startTone(ToneGenerator.TONE_PROP_ACK, 55)\n                    Handler(Looper.getMainLooper()).postDelayed({ runCatching { tone.release() } }, 120)\n                }\n            }\n        }\n        if (hapticEnabled()) vibrate(longArrayOf(0, 24))\n    }\n'''
+          s=s.replace('    fun previewFeedback() {\n',block+'\n    fun previewFeedback() {\n')
+          s=s.replace('    fun previewFeedback() {\n        if (soundEnabled()) {','    fun previewFeedback() {\n        uiClick()\n        if (soundEnabled()) {')
+          p.write_text(s)
+
+          p=root/'app/src/main/res/drawable/ic_launcher.xml'
+          p.write_text('''<vector xmlns:android="http://schemas.android.com/apk/res/android"\n    android:width="108dp" android:height="108dp"\n    android:viewportWidth="108" android:viewportHeight="108">\n    <path android:fillColor="#0F4D43" android:pathData="M18,12H90A12,12 0,0 1,102 24V84A12,12 0,0 1,90 96H18A12,12 0,0 1,6 84V24A12,12 0,0 1,18 12Z"/>\n    <path android:fillColor="#22A8D5C6" android:pathData="M54,18a34,34 0,1 0,0 68a34,34 0,1 0,0 -68z"/>\n    <path android:fillColor="@android:color/transparent" android:pathData="M34,31H74A7,7 0,0 1,81 38V75A7,7 0,0 1,74 82H34A7,7 0,0 1,27 75V38A7,7 0,0 1,34 31Z" android:strokeColor="#FFFFFFFF" android:strokeWidth="5" android:strokeLineCap="round" android:strokeLineJoin="round"/>\n    <path android:fillColor="#FFFFFFFF" android:pathData="M35,22h6a3,3 0,0 1,3 3v12a3,3 0,0 1,-3 3h-6a3,3 0,0 1,-3 -3V25a3,3 0,0 1,3 -3zM67,22h6a3,3 0,0 1,3 3v12a3,3 0,0 1,-3 3h-6a3,3 0,0 1,-3 -3V25a3,3 0,0 1,3 -3zM36,49h8v8h-8zM49,49h8v8h-8zM36,62h8v8h-8zM49,62h8v8h-8z"/>\n</vector>\n''')
+
+          p=root/'app/src/main/java/com/rafat/munasabati/ui/AppUi.kt'
+          s=p.read_text()
+          s=s.replace('private fun repo(context: Context) = (context.applicationContext as MunasabatiApp).repository\n','private fun repo(context: Context) = (context.applicationContext as MunasabatiApp).repository\nprivate inline fun uiTap(context: Context, action: () -> Unit) { AppPreferences(context).uiClick(); action() }\n')
+          s=s.replace('colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Cream, titleContentColor = DeepGreen),','colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = DeepGreen, titleContentColor = Color.White),')
+          s=s.replace('Text(tr("مناسباتي", "Munasabati"), fontWeight = FontWeight.ExtraBold, color = DeepGreen)','Text(tr("مناسباتي", "Munasabati"), fontWeight = FontWeight.ExtraBold, color = Color.White)')
+          s=s.replace('Text(tr("مواعيدك وذكرياتك في مكان واحد", "Your events and memories in one place"), fontSize = 11.sp, color = GreenDark)','Text(tr("مواعيدك وذكرياتك في مكان واحد", "Your events and memories in one place"), fontSize = 11.sp, color = Mint)')
+          s=s.replace('floatingActionButton = { FloatingActionButton(onClick = { nav.navigate("add") }) { Icon(Icons.Default.Add, null) } }','floatingActionButton = { FloatingActionButton(onClick = { uiTap(context) { nav.navigate("add") } }, containerColor = Gold, contentColor = DeepGreen) { Icon(Icons.Default.Add, null) } }')
+          s=s.replace('@Composable private fun BottomBar(nav: NavHostController) {\n    val entry by nav.currentBackStackEntryAsState()','@Composable private fun BottomBar(nav: NavHostController) {\n    val context = LocalContext.current\n    val entry by nav.currentBackStackEntryAsState()')
+          s=s.replace('    NavigationBar {\n        val items = listOf(','    NavigationBar(containerColor = Cream) {\n        val items = listOf(',1)
+          s=s.replace('onClick = { nav.navigate(target) { launchSingleTop = true; restoreState = true; popUpTo("center") { saveState = true } } },','onClick = { uiTap(context) { nav.navigate(target) { launchSingleTop = true; restoreState = true; popUpTo("center") { saveState = true } } } },')
+          s=s.replace('                label = { Text(label) }\n            )','                label = { Text(label) },\n                colors = NavigationBarItemDefaults.colors(selectedIconColor = DeepGreen, selectedTextColor = DeepGreen, indicatorColor = Mint, unselectedIconColor = Slate, unselectedTextColor = Slate)\n            )',1)
+          s=s.replace('tr("متأخرة", "Overdue") to b.overdue','tr("سابقة", "Previous") to b.overdue')
+
+          pairs=[
+          ('AssistChip(onClick = { ShareTools.shareText(context, ShareTools.eventText(e), true); linkedPerson?.let { repo(context).recordInteraction(it.id, e.id, "message") } }','AssistChip(onClick = { uiTap(context) { ShareTools.shareText(context, ShareTools.eventText(e), true); linkedPerson?.let { repo(context).recordInteraction(it.id, e.id, "message") } } }'),
+          ('AssistChip(onClick = { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${linkedPerson.phone}"))); repo(context).recordInteraction(linkedPerson.id, e.id, "call") }','AssistChip(onClick = { uiTap(context) { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${linkedPerson.phone}"))); repo(context).recordInteraction(linkedPerson.id, e.id, "call") } }'),
+          ('AssistChip(onClick = { ShareTools.shareBitmap(context, ShareTools.qrBitmap(ShareTools.eventText(e)), "event_qr_${e.id}.png") }','AssistChip(onClick = { uiTap(context) { ShareTools.shareBitmap(context, ShareTools.qrBitmap(ShareTools.eventText(e)), "event_qr_${e.id}.png") } }'),
+          ('AssistChip(onClick = { ShareTools.shareBitmap(context, ShareTools.memoryCard(e), "event_card_${e.id}.png") }','AssistChip(onClick = { uiTap(context) { ShareTools.shareBitmap(context, ShareTools.memoryCard(e), "event_card_${e.id}.png") } }'),
+          ('AssistChip(onClick = { confirmDelete = true }','AssistChip(onClick = { uiTap(context) { confirmDelete = true } }'),
+          ('AssistChip(onClick = { val r = repo(context); r.upsertEvent(e.copy(attended = true, status = EventStatus.DONE, updatedAt = System.currentTimeMillis())); e.personId?.let { r.recordInteraction(it, e.id, "attended") }; onChanged() }','AssistChip(onClick = { uiTap(context) { val r = repo(context); r.upsertEvent(e.copy(attended = true, status = EventStatus.DONE, updatedAt = System.currentTimeMillis())); e.personId?.let { r.recordInteraction(it, e.id, "attended") }; onChanged() } }')]
+          for a,b in pairs: s=s.replace(a,b)
+          old='''if (e.locationName.isNotBlank() || e.latitude != null) item { AssistChip(onClick = {\n                    val uri = if (e.latitude != null && e.longitude != null) Uri.parse("geo:${e.latitude},${e.longitude}?q=${e.latitude},${e.longitude}") else Uri.parse("geo:0,0?q=${Uri.encode(e.locationName)}")\n                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))\n                }, label = { Text(tr("الموقع", "Location")) }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }) }'''
+          new='''if (e.locationName.isNotBlank() || e.latitude != null) item { AssistChip(onClick = { uiTap(context) {\n                    val uri = if (e.latitude != null && e.longitude != null) Uri.parse("geo:${e.latitude},${e.longitude}?q=${e.latitude},${e.longitude}") else Uri.parse("geo:0,0?q=${Uri.encode(e.locationName)}")\n                    context.startActivity(Intent(Intent.ACTION_VIEW, uri))\n                } }, label = { Text(tr("الموقع", "Location")) }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }) }'''
+          s=s.replace(old,new)
+          s=s.replace('@Composable private fun MonthView(month: YearMonth, events: List<EventModel>, onPrev: () -> Unit, onNext: () -> Unit) {\n    val locale = appLocale()','@Composable private fun MonthView(month: YearMonth, events: List<EventModel>, onPrev: () -> Unit, onNext: () -> Unit) {\n    val context = LocalContext.current\n    val locale = appLocale()')
+          s=s.replace('IconButton(onClick = onPrev)','IconButton(onClick = { uiTap(context, onPrev) })').replace('IconButton(onClick = onNext)','IconButton(onClick = { uiTap(context, onNext) })')
+          s=s.replace('@Composable fun MoreScreen(nav: NavHostController) {\n    LazyColumn','@Composable fun MoreScreen(nav: NavHostController) {\n    val context = LocalContext.current\n    LazyColumn')
+          for target in ('preferences','stats','legacy','diagnostics'):
+              s=s.replace(f'Modifier.clickable {{ nav.navigate("{target}") }}',f'Modifier.clickable {{ uiTap(context) {{ nav.navigate("{target}") }} }}')
+          s=s.replace('var sound by remember { mutableStateOf(prefs.soundEnabled()) }\n    var haptic','var sound by remember { mutableStateOf(prefs.soundEnabled()) }\n    var uiSound by remember { mutableStateOf(prefs.uiSoundEnabled()) }\n    var haptic')
+          s=s.replace('Text(tr("الصوت واللمس والحركة", "Sound, touch & motion"), fontSize = 21.sp, fontWeight = FontWeight.Bold)\n','Text(tr("الصوت واللمس والحركة", "Sound, touch & motion"), fontSize = 21.sp, fontWeight = FontWeight.Bold)\n        Row(verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(tr("أصوات الأيقونات والواجهة", "Interface & icon sounds"), fontWeight = FontWeight.Medium); Text(tr("نغمة قصيرة عند الضغط على أيقونات التنقل والإجراءات", "A short click sound for navigation and action icons"), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }; Switch(uiSound, { uiSound = it; prefs.setUiSoundEnabled(it); if (it) prefs.uiClick() }) }\n')
+          s=s.replace('Button(onClick = { prefs.previewFeedback() }, modifier = Modifier.fillMaxWidth(), enabled = sound || haptic)','Button(onClick = { prefs.previewFeedback() }, modifier = Modifier.fillMaxWidth(), enabled = sound || uiSound || haptic)')
+          s=s.replace('onClick = { language = "ar"; prefs.setLanguage("ar");','onClick = { prefs.uiClick(); language = "ar"; prefs.setLanguage("ar");')
+          s=s.replace('onClick = { language = "en"; prefs.setLanguage("en");','onClick = { prefs.uiClick(); language = "en"; prefs.setLanguage("en");')
+          p.write_text(s)
+
+          p=root/'app/src/androidTest/java/com/rafat/munasabati/FeatureRegressionInstrumentedTest.kt'
+          s=p.read_text().replace('p.setSoundEnabled(true); assertTrue(p.soundEnabled())\n','p.setSoundEnabled(true); assertTrue(p.soundEnabled())\n        p.setUiSoundEnabled(true); assertTrue(p.uiSoundEnabled()); p.uiClick()\n')
+          p.write_text(s)
+          PY
+
+      - name: Static feature gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 63' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.3"' v5src/app/build.gradle.kts
+          grep -Fq 'tr("سابقة", "Previous") to b.overdue' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          ! grep -Fq 'tr("متأخرة", "Overdue")' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'fun uiClick()' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'ui_sound_enabled' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'أصوات الأيقونات والواجهة' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'M18,12H90' v5src/app/src/main/res/drawable/ic_launcher.xml
+          grep -q 'containerColor = DeepGreen, titleContentColor = Color.White' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'fun moveToTrash(e:EventModel):Boolean' v5src/app/src/main/java/com/rafat/munasabati/compat/LegacyDataTools.kt
+          grep -q 'PreferencesScreen(onLanguageChanged' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'رأفت ناصر الناصر' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'Rafat Nasser Alnasser' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Unit tests and builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p v5src :app:testStableDebugUnitTest --stacktrace --no-daemon
+          gradle -p v5src :app:assembleStableDebug :app:assembleStableRelease :app:assembleStableDebugAndroidTest --stacktrace --no-daemon
+
+      - name: Download exact passed v5.0.2 unsigned release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/v502-art
+          curl --fail --location -H "Authorization: Bearer $GH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/9755547607/zip" -o /tmp/v502.zip
+          unzip -q /tmp/v502.zip -d /tmp/v502-art
+          OLD=$(find /tmp/v502-art -type f -name '*v5.0.2*unsigned*.apk' | head -1)
+          test -n "$OLD"
+          cp "$OLD" /tmp/v502-unsigned.apk
+
+      - name: Sign v5.0.2 and v5.0.3 with same CI certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          NEW=$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)
+          keytool -genkeypair -keystore /tmp/test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Munasabati v503 Test,O=Munasabati,C=SA"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 /tmp/v502-unsigned.apk /tmp/v502-aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$NEW" /tmp/v503-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v502.apk /tmp/v502-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v503.apk /tmp/v503-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v502.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v503.apk
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Instrumented features and exact data-preserving upgrade
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -eu
+            gradle -p v5src :app:connectedStableDebugAndroidTest --stacktrace --no-daemon
+            PKG=com.rafat.munasabati
+            DATA=/data/user/0/$PKG
+            adb install -r /tmp/v502.apk
+            adb root || true
+            adb wait-for-device
+            sleep 2
+            adb shell mkdir -p "$DATA/shared_prefs"
+            printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiIHN0YW5kYWxvbmU9InllcyIgPz4KPG1hcD48c3RyaW5nIG5hbWU9ImV2ZW50cyI+W3siaWQiOiJ1cGdyYWRlLTUwMy1rZWVwIiwidGl0bGUiOiLZhdmG2KfYs9io2Kkg2YXYrdmB2YjYuNipINmE2KfYrtiq2KjYp9ixIDUuMC4zIiwiY2F0ZWdvcnkiOiLYudin2KbZhNmK2KkiLCJyZWN1cnJlbmNlIjoieWVhcmx5IiwiZXZlbnRUaW1lIjoxNzkwMDAwMDAwMDAwLCJyZW1pbmRlcnNDc3YiOiI2MCwxNDQwIiwic3Ryb25nQWxlcnQiOnRydWUsImZhdm9yaXRlIjp0cnVlfV08L3N0cmluZz48L21hcD4K' | base64 -d > /tmp/events.xml
+            printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiIHN0YW5kYWxvbmU9InllcyIgPz4KPG1hcD48c3RyaW5nIG5hbWU9Imxhbmd1YWdlIj5hcjwvc3RyaW5nPjxib29sZWFuIG5hbWU9InNvdW5kX2VuYWJsZWQiIHZhbHVlPSJ0cnVlIiAvPjxib29sZWFuIG5hbWU9ImhhcHRpY19fZW5hYmxlZCIgdmFsdWU9InRydWUiIC8+PC9tYXA+Cg==' | base64 -d > /tmp/settings.xml
+            adb push /tmp/events.xml /data/local/tmp/events.xml >/dev/null
+            adb push /tmp/settings.xml /data/local/tmp/settings.xml >/dev/null
+            adb shell cp /data/local/tmp/events.xml "$DATA/shared_prefs/munasabati_events.xml"
+            adb shell cp /data/local/tmp/settings.xml "$DATA/shared_prefs/munasabati_settings.xml"
+            U=$(adb shell stat -c %u "$DATA" | tr -d '\r')
+            adb shell chown "$U:$U" "$DATA/shared_prefs/munasabati_events.xml" "$DATA/shared_prefs/munasabati_settings.xml"
+            adb shell chmod 600 "$DATA/shared_prefs/munasabati_events.xml" "$DATA/shared_prefs/munasabati_settings.xml"
+            adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
+            sleep 12
+            adb shell pidof "$PKG"
+            adb shell am force-stop "$PKG"
+            adb exec-out cat "$DATA/databases/munasabati_v5.db" > /tmp/before.sqlite
+            python -c "import sqlite3;db=sqlite3.connect('/tmp/before.sqlite');r=db.execute(\"select title from events where id='upgrade-503-keep'\").fetchone();assert r;print('V502_DATA_READY',r)"
+            adb logcat -c
+            adb install -r /tmp/v503.apk
+            adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
+            sleep 12
+            adb shell pidof "$PKG"
+            adb logcat -d -t 1800 > /tmp/v503.log
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v503.log || true)"
+            adb exec-out cat "$DATA/databases/munasabati_v5.db" > /tmp/after.sqlite
+            python -c "import sqlite3;db=sqlite3.connect('/tmp/after.sqlite');r=db.execute(\"select title,recurrence,reminders_csv,strong_alert from events where id='upgrade-503-keep'\").fetchone();assert r and r[1]=='yearly' and r[2]=='60,1440' and r[3]==1,r;print('V503_DATA_PRESERVED',r)"
+            adb shell dumpsys package "$PKG" | grep -q 'versionCode=63'
+            echo V503_ALL_GATES_PASS
+
+      - name: Collect unsigned v5.0.3 and signing tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          NEW=$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)
+          cp "$NEW" final/Munasabati-v5.0.3-IDENTITY-SOUND-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" final/apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" final/zipalign
+          sha256sum final/Munasabati-v5.0.3-IDENTITY-SOUND-unsigned.apk > final/unsigned-sha256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.0.3-identity-sound-upgrade-passed
+          path: final/*
+          if-no-files-found: error
+          retention-days: 14
