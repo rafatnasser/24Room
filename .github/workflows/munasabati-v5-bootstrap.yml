@@ -142,10 +142,8 @@ jobs:
             sleep 5
             adb shell pidof com.rafat.munasabati.beta
             adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | grep 'com.rafat.munasabati.beta'
-            if adb logcat -d -t 500 | grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.beta'; then
-              echo 'Fatal exception detected during Beta 3 launch'
-              exit 1
-            fi
+            adb logcat -d -t 500 > /tmp/munasabati-logcat.txt
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.beta' /tmp/munasabati-logcat.txt || true)"
 
       - name: Upload Beta APK
         uses: actions/upload-artifact@v4
