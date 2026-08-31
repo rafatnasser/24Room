@@ -59,11 +59,18 @@ jobs:
           s=p.read_text()
           if 'testImplementation("org.json:json:20240303")' not in s:
               s=s.replace('testImplementation("junit:junit:4.13.2")','testImplementation("junit:junit:4.13.2")\n    testImplementation("org.json:json:20240303")')
+          if 'implementation("androidx.fragment:fragment-ktx:1.8.5")' not in s:
+              marker='implementation("androidx.activity:activity-compose:1.11.0")'
+              if marker in s:
+                  s=s.replace(marker, marker+'\n    implementation("androidx.fragment:fragment-ktx:1.8.5")')
+              else:
+                  s=s.replace('dependencies {','dependencies {\n    implementation("androidx.fragment:fragment-ktx:1.8.5")',1)
           p.write_text(s)
           PY
           grep -q 'setPadding(48,48,48,48)' v5src/app/src/main/java/com/rafat/munasabati/compat/StrongAlertActivity.kt
           grep -q 'content: @Composable () -> Unit' v5src/app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt
           grep -q 'org.json:json:20240303' v5src/app/build.gradle.kts
+          grep -q 'androidx.fragment:fragment-ktx:1.8.5' v5src/app/build.gradle.kts
 
       - uses: actions/setup-java@v5
         with:
