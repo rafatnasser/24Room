@@ -1,0 +1,193 @@
+name: Munasabati v5.0.2 Feature Regression
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.github/workflows/munasabati-v5.0.2-feature-regression.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  feature-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore v5 stable source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p v5src
+          cat .munasabati-v5/source.part*.b64 > /tmp/base.b64
+          base64 --decode /tmp/base.b64 > /tmp/base.zip
+          echo "a1717136bd5d402a65cc8a6b8341c83c7ef74d6b0cf19650b784dc12d42ce34f  /tmp/base.zip" | sha256sum -c -
+          unzip -q /tmp/base.zip -d v5src
+          cat .munasabati-v5-beta2/overlay.part*.b64 > /tmp/beta2.b64
+          base64 --decode /tmp/beta2.b64 > /tmp/beta2.tgz
+          echo "f006f8def9552dddef974ff56e91856da38d3e6144896d0622132deb8c91b707  /tmp/beta2.tgz" | sha256sum -c -
+          tar -xzf /tmp/beta2.tgz -C v5src
+          cat .munasabati-v5-stable/overlay.part*.b64 > /tmp/stable.b64
+          base64 --decode /tmp/stable.b64 > /tmp/stable.tgz
+          echo "995d93371091cb4cbce75d439d601b906899d39bafca1e04af29287138a64419  /tmp/stable.tgz" | sha256sum -c -
+          tar -xzf /tmp/stable.tgz -C v5src
+
+      - name: Apply audited v5.0.1 recovery patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import re, textwrap
+          src=Path('.github/workflows/munasabati-v5-hotfix-release-upgrade.yml').read_text()
+          section=src[src.index('- name: Apply common compile fixes and v5.0.1 recovery hotfix'):]
+          m=re.search(r"python - <<'PY'\n(.*?)\n\s+PY",section,re.S)
+          if not m: raise SystemExit('recovery patch not found')
+          Path('/tmp/apply-recovery.py').write_text(textwrap.dedent(m.group(1)))
+          PY
+          python /tmp/apply-recovery.py
+          grep -q 'versionCode = 61' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.1"' v5src/app/build.gradle.kts
+          grep -q 'isMinifyEnabled = false' v5src/app/build.gradle.kts
+          cp -a v5src old501
+
+      - name: Apply v5.0.2 feature restoration overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502/overlay.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/v502.tgz
+          echo "8172537415583f8e90c10efcd769fc7656134d1120fe67fe0253fc7a10b7c2de  /tmp/v502.tgz" | sha256sum -c -
+          tar -xzf /tmp/v502.tgz -C v5src
+          grep -q 'versionCode = 62' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.2"' v5src/app/build.gradle.kts
+          grep -q 'sound_enabled' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'haptic_enabled' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'language' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'تصميم وتطوير البرنامج' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'رأفت ناصر الناصر' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'Designed & developed by' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'Rafat Nasser Alnasser' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'CHANNEL_SOUND' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
+          grep -q 'CHANNEL_STRONG' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
+          grep -q 'moveToTrash' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'weekdayNamesArabic' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Unit tests v5.0.2
+        working-directory: v5src
+        run: gradle :app:testStableDebugUnitTest --stacktrace --no-daemon
+
+      - name: Build v5.0.1 and v5.0.2 releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd old501 && gradle :app:assembleStableRelease --stacktrace --no-daemon)
+          (cd v5src && gradle :app:assembleStableDebug :app:assembleStableRelease :app:assembleStableDebugAndroidTest --stacktrace --no-daemon)
+
+      - name: Sign release upgrade pair with same CI certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -v -keystore /tmp/test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Munasabati Feature Test,O=Munasabati,C=SA"
+          OLD=$(find old501/app/build/outputs/apk/stable/release -name '*.apk' | head -1)
+          NEW=$(find v5src/app/build/outputs/apk/stable/release -name '*.apk' | head -1)
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$OLD" /tmp/v5.0.1-aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$NEW" /tmp/v5.0.2-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v5.0.1-test.apk /tmp/v5.0.1-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v5.0.2-test.apk /tmp/v5.0.2-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v5.0.1-test.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v5.0.2-test.apk
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Functional tests and exact v5.0.1 to v5.0.2 upgrade
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -eu
+            cd "$GITHUB_WORKSPACE/v5src"
+            gradle :app:connectedStableDebugAndroidTest --stacktrace --no-daemon
+            cd "$GITHUB_WORKSPACE"
+
+            PKG=com.rafat.munasabati
+            adb install -r /tmp/v5.0.1-test.apk
+            adb root
+            adb wait-for-device
+            printf '%s' 'PD94bWwgdmVyc2lvbj0nMS4wJyBlbmNvZGluZz0ndXRmLTgnIHN0YW5kYWxvbmU9J3llcycgPz4KPG1hcD48c3RyaW5nIG5hbWU9ImV2ZW50cyI+W3siaWQiOiJsZWdhY3ktdjUwMiIsInRpdGxlIjoi2YXZhtin2LPYqNipINmF2K3ZgdmI2LjYqSDZgtio2YQg2KfZhNiq2K3Yr9mK2KsiLCJjYXRlZ29yeSI6Iti52KfYptmE2YrYqSIsImV2ZW50VGltZSI6MTc4ODIxMDAwMDAwMCwicmVtaW5kZXJNaW51dGVzIjo2MCwicmVtaW5kZXJzQ3N2IjoiNjAsMTQ0MCIsInN0cm9uZ0FsZXJ0Ijp0cnVlLCJmYXZvcml0ZSI6dHJ1ZX1dPC9zdHJpbmc+PC9tYXA+Cg==' | base64 -d > /tmp/events.xml
+            printf '%s' 'PD94bWwgdmVyc2lvbj0nMS4wJyBlbmNvZGluZz0ndXRmLTgnIHN0YW5kYWxvbmU9J3llcycgPz4KPG1hcD48c3RyaW5nIG5hbWU9Imxhbmd1YWdlIj5lbjwvc3RyaW5nPjxib29sZWFuIG5hbWU9InNvdW5kX2VuYWJsZWQiIHZhbHVlPSJ0cnVlIiAvPjxib29sZWFuIG5hbWU9ImhhcHRpY19lbmFibGVkIiB2YWx1ZT0idHJ1ZSIgLz48Ym9vbGVhbiBuYW1lPSJhcHBfbG9ja19lbmFibGVkIiB2YWx1ZT0iZmFsc2UiIC8+PC9tYXA+Cg==' | base64 -d > /tmp/settings.xml
+            adb shell mkdir -p /data/data/$PKG/shared_prefs
+            adb push /tmp/events.xml /data/data/$PKG/shared_prefs/munasabati_events.xml
+            adb push /tmp/settings.xml /data/data/$PKG/shared_prefs/munasabati_settings.xml
+            U=$(adb shell stat -c %u /data/data/$PKG | tr -d '\r')
+            adb shell chown -R "$U:$U" /data/data/$PKG/shared_prefs
+            adb shell chmod 660 /data/data/$PKG/shared_prefs/*.xml
+            adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
+            adb logcat -c
+            adb shell am start -W -n $PKG/com.rafat.munasabati.MainActivity
+            sleep 15
+            adb shell pidof $PKG
+            adb shell am force-stop $PKG
+
+            adb install -r /tmp/v5.0.2-test.apk
+            adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
+            adb logcat -c
+            adb shell am start -W -n $PKG/com.rafat.munasabati.MainActivity
+            sleep 15
+            adb shell pidof $PKG
+            adb logcat -d -t 2500 > /tmp/v502.log
+            if grep -n -A100 -B30 -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v502.log; then exit 1; fi
+            adb shell test -f /data/data/$PKG/shared_prefs/munasabati_events.xml
+            adb shell test -f /data/data/$PKG/shared_prefs/munasabati_settings.xml
+            adb shell grep -q 'name="language">en<' /data/data/$PKG/shared_prefs/munasabati_settings.xml
+            adb shell grep -q 'name="sound_enabled" value="true"' /data/data/$PKG/shared_prefs/munasabati_settings.xml
+            adb shell test -f /data/data/$PKG/databases/munasabati_v5.db
+            adb pull /data/data/$PKG/databases/munasabati_v5.db /tmp/db.sqlite
+            python - <<'PY'
+            import sqlite3
+            db=sqlite3.connect('/tmp/db.sqlite')
+            titles={r[0] for r in db.execute('select title from events')}
+            assert 'مناسبة محفوظة قبل التحديث' in titles, titles
+            print('V501_TO_V502_DATA_PRESERVED_PASS')
+            PY
+
+      - name: Collect unsigned v5.0.2 and signing tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          cp v5src/app/build/outputs/apk/stable/release/*.apk final/Munasabati-v5.0.2-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" final/apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" final/zipalign
+          sha256sum final/Munasabati-v5.0.2-unsigned.apk > final/unsigned.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.0.2-feature-regression-passed
+          path: final/*
+          if-no-files-found: error
+          retention-days: 14
