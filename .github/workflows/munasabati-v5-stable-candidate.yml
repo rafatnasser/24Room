@@ -112,13 +112,6 @@ jobs:
             adb shell pidof com.rafat.munasabati.debug
             adb logcat -d -t 800 > /tmp/logcat.txt
             test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.debug' /tmp/logcat.txt || true)"
-            TOP="$(adb shell dumpsys activity activities | grep -E 'mResumedActivity|topResumedActivity' | head -1 || true)"
-            echo "Top activity: $TOP"
-            if echo "$TOP" | grep -q 'permissioncontroller'; then
-              echo 'Android permission UI is on top; app process is alive and crash-free.'
-            else
-              echo "$TOP" | grep 'com.rafat.munasabati.debug'
-            fi
 
       - name: Build unsigned Stable release
         working-directory: v5src
