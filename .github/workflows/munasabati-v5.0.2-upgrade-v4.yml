@@ -30,6 +30,35 @@ jobs:
           grep -q 'versionCode = 62' v5src/app/build.gradle.kts
           grep -q 'versionName = "5.0.2"' v5src/app/build.gradle.kts
 
+      - name: Restore exact credits and verify requested features
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          prefs=Path('v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt')
+          s=prefs.read_text()
+          s=s.replace('const val AR_RIGHTS = "© 2026 رأفت ناصر الناصر — جميع حقوق البرنامج محفوظة."','const val AR_RIGHTS = "© 2026 جميع حقوق البرنامج محفوظة."')
+          s=s.replace('const val EN_RIGHTS = "© 2026 Rafat Nasser Alnasser — All rights reserved."','const val EN_RIGHTS = "© 2026 All rights reserved."')
+          prefs.write_text(s)
+
+          ui=Path('v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt')
+          s=ui.read_text()
+          marker='''                    Text(tr("مناسباتي", "Munasabati"), fontSize = 28.sp, fontWeight = FontWeight.Bold)\n                    Text(startupMessage, textAlign = TextAlign.Center)\n'''
+          footer='''                    Text(tr("مناسباتي", "Munasabati"), fontSize = 28.sp, fontWeight = FontWeight.Bold)\n                    Text(startupMessage, textAlign = TextAlign.Center)\n                    Spacer(Modifier.height(12.dp))\n                    Text(AppCredits.AR_LABEL, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = GreenDark)\n                    Text(AppCredits.AR_NAME, fontSize = 15.sp, fontWeight = FontWeight.Bold, color = DeepGreen)\n                    Text("${AppCredits.EN_LABEL} ${AppCredits.EN_NAME}", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)\n                    Text(AppCredits.AR_RIGHTS, fontSize = 9.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)\n'''
+          if 'Text(AppCredits.AR_LABEL, fontSize = 12.sp' not in s:
+              if marker not in s: raise SystemExit('startup credits marker missing')
+              s=s.replace(marker,footer)
+          ui.write_text(s)
+          PY
+          grep -q 'const val AR_RIGHTS = "© 2026 جميع حقوق البرنامج محفوظة."' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'const val EN_RIGHTS = "© 2026 All rights reserved."' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'Text(AppCredits.AR_LABEL, fontSize = 12.sp' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'fun moveToTrash(e:EventModel):Boolean' v5src/app/src/main/java/com/rafat/munasabati/compat/LegacyDataTools.kt
+          grep -q 'PreferencesScreen(onLanguageChanged' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'fun previewFeedback()' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'munasabati_events_sound_v502' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -40,6 +69,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
+
+      - name: Unit tests v5.0.2
+        run: gradle -p v5src :app:testStableDebugUnitTest --stacktrace --no-daemon
 
       - name: Build v5.0.2 release
         run: gradle -p v5src :app:assembleStableRelease --stacktrace --no-daemon
@@ -91,8 +123,8 @@ jobs:
           adb push /tmp/settings.xml /data/local/tmp/settings.xml >/dev/null
           adb shell cp /data/local/tmp/events.xml "$DATA/shared_prefs/munasabati_events.xml"
           adb shell cp /data/local/tmp/settings.xml "$DATA/shared_prefs/munasabati_settings.xml"
-          UID=$(adb shell stat -c %u "$DATA" | tr -d '\r')
-          adb shell chown "$UID:$UID" "$DATA/shared_prefs/munasabati_events.xml" "$DATA/shared_prefs/munasabati_settings.xml"
+          APP_UID=$(adb shell stat -c %u "$DATA" | tr -d '\r')
+          adb shell chown "$APP_UID:$APP_UID" "$DATA/shared_prefs/munasabati_events.xml" "$DATA/shared_prefs/munasabati_settings.xml"
           adb shell chmod 600 "$DATA/shared_prefs/munasabati_events.xml" "$DATA/shared_prefs/munasabati_settings.xml"
 
           adb logcat -c
