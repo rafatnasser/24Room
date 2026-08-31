@@ -126,6 +126,7 @@ jobs:
           APP_UID=$(adb shell stat -c %u "$DATA" | tr -d '\r')
           adb shell chown "$APP_UID:$APP_UID" "$DATA/shared_prefs/munasabati_events.xml" "$DATA/shared_prefs/munasabati_settings.xml"
           adb shell chmod 600 "$DATA/shared_prefs/munasabati_events.xml" "$DATA/shared_prefs/munasabati_settings.xml"
+          adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
 
           adb logcat -c
           adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
@@ -139,6 +140,7 @@ jobs:
 
           adb logcat -c
           adb install -r /tmp/v502.apk
+          adb shell am force-stop "$PKG" || true
           adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
           adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
           sleep 12
