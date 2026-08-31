@@ -43,6 +43,22 @@ jobs:
           grep -q 'AhlBaytCalendar' v5src/app/src/main/java/com/rafat/munasabati/compat/AhlBaytCalendar.kt
           grep -q 'AndroidKeyStore' v5src/app/src/main/java/com/rafat/munasabati/compat/SecureNotes.kt
 
+      - name: Apply Stable compile fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('v5src')
+          p=root/'app/src/main/java/com/rafat/munasabati/compat/StrongAlertActivity.kt'
+          s=p.read_text().replace('gravity=android.view.Gravity.CENTER;padding=48;setBackgroundColor','gravity=android.view.Gravity.CENTER;setPadding(48,48,48,48);setBackgroundColor')
+          p.write_text(s)
+          p=root/'app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt'
+          s=p.read_text().replace('Icons.Default.DeleteRestore','Icons.Default.RestoreFromTrash').replace('@Composable fun AppLockGate(content:@Composable()->Unit){','@Composable fun AppLockGate(content: @Composable () -> Unit){')
+          p.write_text(s)
+          PY
+          grep -q 'setPadding(48,48,48,48)' v5src/app/src/main/java/com/rafat/munasabati/compat/StrongAlertActivity.kt
+          grep -q 'content: @Composable () -> Unit' v5src/app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
