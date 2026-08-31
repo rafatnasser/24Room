@@ -1,0 +1,172 @@
+name: Munasabati v5.0.2 Restored Identity Final Gate
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.github/workflows/munasabati-v5.0.2-brand-regression-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  final-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore exact v5.0.2 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502-brand/source.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/v502.tgz
+          echo "35a933424119294e80c930a5f14fb6bf7c4e607a1cdcb7c505716a96c076d2e0  /tmp/v502.tgz" | sha256sum -c -
+          mkdir -p v5src
+          tar -xzf /tmp/v502.tgz -C v5src
+
+      - name: Verify restored identity and requested features
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 62' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.2"' v5src/app/build.gradle.kts
+          grep -Rqs '0xFF0F4D43' v5src/app/src/main/java/com/rafat/munasabati/ui/theme
+          grep -Rqs '0xFF2E7D6B' v5src/app/src/main/java/com/rafat/munasabati/ui/theme
+          grep -Rqs '0xFFA8D5C6' v5src/app/src/main/java/com/rafat/munasabati/ui/theme
+          grep -Rqs '0xFFD09738' v5src/app/src/main/java/com/rafat/munasabati/ui/theme
+          grep -Rqs '0xFFFFF7F2' v5src/app/src/main/java/com/rafat/munasabati/ui/theme
+          grep -Rqs 'رأفت ناصر الناصر' v5src/app/src/main/java
+          grep -Rqs 'Rafat Nasser Alnasser' v5src/app/src/main/java
+          grep -Rqs 'munasabati_events_sound_v502' v5src/app/src/main/java
+          grep -Rqs 'moveToTrash' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -Rqs 'setLanguage' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -Fqs 'val weekdayNamesArabic = listOf("الأحد","الاثنين","الثلاثاء","الأربعاء","الخميس","الجمعة","السبت")' v5src/app/src/main/java/com/rafat/munasabati/calendar/CalendarRules.kt
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Unit tests
+        working-directory: v5src
+        run: gradle :app:testStableDebugUnitTest --stacktrace --no-daemon
+
+      - name: Build debug and release
+        working-directory: v5src
+        run: gradle :app:assembleStableDebug :app:assembleStableRelease --stacktrace --no-daemon
+
+      - name: Download exact passed v5.0.1 release base
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/v501-art
+          curl --fail --location -H "Authorization: Bearer $GH_TOKEN" -H "X-GitHub-Api-Version: 2022-11-28" -H "Accept: application/vnd.github+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/9751327626/zip" -o /tmp/v501.zip
+          unzip -q /tmp/v501.zip -d /tmp/v501-art
+          V501=$(find /tmp/v501-art -type f -name '*v5.0.1*unsigned*.apk' | head -1)
+          test -n "$V501"
+          cp "$V501" /tmp/v501-unsigned.apk
+
+      - name: Prepare same-cert release upgrade pair
+        shell: bash
+        run: |
+          set -euo pipefail
+          V502=$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)
+          keytool -genkeypair -v -keystore /tmp/test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Munasabati Upgrade Test,O=Munasabati,C=SA"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 /tmp/v501-unsigned.apk /tmp/v501-aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$V502" /tmp/v502-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v501.apk /tmp/v501-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v502.apk /tmp/v502-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v501.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v502.apk
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Device feature tests and v5.0.1 to v5.0.2 data-preserving upgrade
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -eu
+            cd v5src
+            gradle :app:connectedStableDebugAndroidTest --stacktrace --no-daemon
+            cd ..
+            PKG=com.rafat.munasabati
+            DATA=/data/user/0/$PKG
+            adb install -r /tmp/v501.apk
+            adb root || true
+            adb wait-for-device
+            sleep 2
+            adb shell mkdir -p "$DATA/shared_prefs"
+            printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiIHN0YW5kYWxvbmU9InllcyIgPz4KPG1hcD48c3RyaW5nIG5hbWU9ImV2ZW50cyI+W3siaWQiOiJ1cGdyYWRlLTUwMi1rZWVwIiwidGl0bGUiOiLZhdmG2KfYs9io2Kkg2YXYrdmB2YjYuNipINmE2KfYrtiq2KjYp9ixIDUuMC4yIiwiY2F0ZWdvcnkiOiLYudin2KbZhNmK2KkiLCJyZWN1cnJlbmNlIjoieWVhcmx5IiwiZGV0YWlscyI6ItmK2KzYqCDYo9mE2Kcg2KrYttmK2Lkg2LnZhtivINin2YTYqtit2K/ZitirIiwiZXZlbnRUaW1lIjoxNzkwMDAwMDAwMDAwLCJyZW1pbmRlck1pbnV0ZXMiOjYwLCJyZW1pbmRlcnNDc3YiOiI2MCwxNDQwIiwiZmF2b3JpdGUiOnRydWUsInBpbm5lZCI6dHJ1ZSwic3Ryb25nQWxlcnQiOnRydWUsInVwZGF0ZWRBdCI6MTc4OTk5MDAwMDAwMH1dPC9zdHJpbmc+PC9tYXA+Cg==' | base64 -d > /tmp/events.xml
+            printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiIHN0YW5kYWxvbmU9InllcyIgPz4KPG1hcD48c3RyaW5nIG5hbWU9Imxhbmd1YWdlIj5lbjwvc3RyaW5nPjxib29sZWFuIG5hbWU9InNvdW5kX2VuYWJsZWQiIHZhbHVlPSJmYWxzZSIgLz48Ym9vbGVhbiBuYW1lPSJoYXB0aWNfZW5hYmxlZCIgdmFsdWU9InRydWUiIC8+PC9tYXA+Cg==' | base64 -d > /tmp/settings.xml
+            adb push /tmp/events.xml /data/local/tmp/events.xml >/dev/null
+            adb push /tmp/settings.xml /data/local/tmp/settings.xml >/dev/null
+            adb shell cp /data/local/tmp/events.xml "$DATA/shared_prefs/munasabati_events.xml"
+            adb shell cp /data/local/tmp/settings.xml "$DATA/shared_prefs/munasabati_settings.xml"
+            UID=$(adb shell stat -c %u "$DATA" | tr -d '\r')
+            adb shell chown "$UID:$UID" "$DATA/shared_prefs/munasabati_events.xml" "$DATA/shared_prefs/munasabati_settings.xml"
+            adb shell chmod 600 "$DATA/shared_prefs/munasabati_events.xml" "$DATA/shared_prefs/munasabati_settings.xml"
+            adb logcat -c
+            adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
+            sleep 12
+            adb shell pidof "$PKG"
+            adb logcat -d -t 1800 > /tmp/v501.log
+            if grep -n -A60 -B20 -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v501.log; then exit 1; fi
+            adb shell am force-stop "$PKG"
+            adb exec-out cat "$DATA/databases/munasabati_v5.db" > /tmp/before.sqlite
+            python -c "import sqlite3;db=sqlite3.connect('/tmp/before.sqlite');r=db.execute(\"select title from events where id='upgrade-502-keep'\").fetchone();assert r and r[0]=='مناسبة محفوظة لاختبار 5.0.2',r;print('V501_DATA_READY')"
+            adb logcat -c
+            adb install -r /tmp/v502.apk
+            adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
+            sleep 12
+            adb shell pidof "$PKG"
+            adb logcat -d -t 1800 > /tmp/v502.log
+            if grep -n -A80 -B20 -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v502.log; then exit 1; fi
+            adb exec-out cat "$DATA/databases/munasabati_v5.db" > /tmp/after.sqlite
+            python -c "import sqlite3;db=sqlite3.connect('/tmp/after.sqlite');r=db.execute(\"select title,recurrence,reminders_csv,strong_alert from events where id='upgrade-502-keep'\").fetchone();assert r and r[0]=='مناسبة محفوظة لاختبار 5.0.2';assert r[1]=='yearly';assert r[2]=='60,1440';assert r[3]==1;print('V502_DATA_PRESERVED',r)"
+            adb exec-out cat "$DATA/shared_prefs/munasabati_settings.xml" > /tmp/settings-after.xml
+            grep -q 'name="language">en<' /tmp/settings-after.xml
+            grep -q 'name="sound_enabled" value="false"' /tmp/settings-after.xml
+            adb shell dumpsys package "$PKG" | grep -q 'versionCode=62'
+            echo V502_ALL_GATES_PASS
+
+      - name: Collect final unsigned release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          V502=$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)
+          cp "$V502" final/Munasabati-v5.0.2-RESTORED-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" final/apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" final/zipalign
+          sha256sum final/Munasabati-v5.0.2-RESTORED-unsigned.apk > final/unsigned-sha256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.0.2-restored-identity-final
+          path: final/*
+          if-no-files-found: error
+          retention-days: 14
