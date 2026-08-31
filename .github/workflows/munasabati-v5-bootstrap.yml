@@ -56,6 +56,20 @@ jobs:
           PY
           grep -E 'compose-bom|core-ktx|activity-compose|lifecycle-|work-runtime' v5src/app/build.gradle.kts
 
+      - name: Apply Kotlin 2.4 strict-type fixes
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('v5src/app/src/main/java/com/rafat/munasabati/data/MunasabatiDatabase.kt')
+          s = p.read_text()
+          old = 'arrayOf(System.currentTimeMillis(), personId))'
+          new = 'arrayOf<Any?>(System.currentTimeMillis(), personId))'
+          if old not in s:
+              raise SystemExit('Expected database interaction expression not found')
+          p.write_text(s.replace(old, new))
+          PY
+
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
