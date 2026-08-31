@@ -1,0 +1,171 @@
+name: Munasabati v5.0.1 Hotfix Upgrade Test
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.munasabati-v5-hotfix/**'
+      - '.github/workflows/munasabati-v5-hotfix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hotfix-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore old v5 Stable and new Hotfix source
+        shell: bash
+        run: |
+          set -euo pipefail
+          restore() {
+            dst="$1"
+            mkdir -p "$dst"
+            cat .munasabati-v5/source.part*.b64 > /tmp/base.b64
+            base64 --decode /tmp/base.b64 > /tmp/base.zip
+            echo "a1717136bd5d402a65cc8a6b8341c83c7ef74d6b0cf19650b784dc12d42ce34f  /tmp/base.zip" | sha256sum -c -
+            unzip -q /tmp/base.zip -d "$dst"
+            cat .munasabati-v5-beta2/overlay.part*.b64 > /tmp/beta2.b64
+            base64 --decode /tmp/beta2.b64 > /tmp/beta2.tgz
+            echo "f006f8def9552dddef974ff56e91856da38d3e6144896d0622132deb8c91b707  /tmp/beta2.tgz" | sha256sum -c -
+            tar -xzf /tmp/beta2.tgz -C "$dst"
+            cat .munasabati-v5-stable/overlay.part*.b64 > /tmp/stable.b64
+            base64 --decode /tmp/stable.b64 > /tmp/stable.tgz
+            echo "995d93371091cb4cbce75d439d601b906899d39bafca1e04af29287138a64419  /tmp/stable.tgz" | sha256sum -c -
+            tar -xzf /tmp/stable.tgz -C "$dst"
+          }
+          restore oldsrc
+          cp -a oldsrc v5src
+          cat .munasabati-v5-hotfix/overlay.part*.b64 > /tmp/hotfix.b64
+          base64 --decode /tmp/hotfix.b64 > /tmp/hotfix.tgz
+          echo "b83d6b2532af47fd711311160829cc1e64c22f3492ad571692b606ba4158c90d  /tmp/hotfix.tgz" | sha256sum -c -
+          tar -xzf /tmp/hotfix.tgz -C v5src
+          grep -q 'versionCode = 61' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.1"' v5src/app/build.gradle.kts
+          grep -q 'const val VERSION = 3' v5src/app/src/main/java/com/rafat/munasabati/data/MunasabatiDatabase.kt
+          grep -q 'startupReady' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+
+      - name: Apply old Stable compile fixes for upgrade fixture
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('oldsrc')
+          p=root/'app/src/main/java/com/rafat/munasabati/compat/StrongAlertActivity.kt'
+          p.write_text(p.read_text().replace('gravity=android.view.Gravity.CENTER;padding=48;setBackgroundColor','gravity=android.view.Gravity.CENTER;setPadding(48,48,48,48);setBackgroundColor'))
+          p=root/'app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt'
+          p.write_text(p.read_text().replace('Icons.Default.DeleteRestore','Icons.Default.RestoreFromTrash').replace('@Composable fun AppLockGate(content:@Composable()->Unit){','@Composable fun AppLockGate(content: @Composable () -> Unit){'))
+          p=root/'app/build.gradle.kts'
+          s=p.read_text()
+          if 'implementation("androidx.fragment:fragment-ktx:1.8.5")' not in s:
+              marker='implementation("androidx.activity:activity-compose:1.11.0")'
+              s=s.replace(marker, marker+'\n    implementation("androidx.fragment:fragment-ktx:1.8.5")')
+          if 'testImplementation("org.json:json:20240303")' not in s:
+              s=s.replace('testImplementation("junit:junit:4.13.2")','testImplementation("junit:junit:4.13.2")\n    testImplementation("org.json:json:20240303")')
+          p.write_text(s)
+          PY
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Unit tests Hotfix
+        working-directory: v5src
+        run: gradle :app:testStableDebugUnitTest --stacktrace --no-daemon
+
+      - name: Build old Stable debug fixture
+        working-directory: oldsrc
+        run: gradle :app:assembleStableDebug --stacktrace --no-daemon
+
+      - name: Build Hotfix debug
+        working-directory: v5src
+        run: gradle :app:assembleStableDebug --stacktrace --no-daemon
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: In-place upgrade smoke test with legacy data
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            PKG=com.rafat.munasabati.debug
+            adb logcat -c
+            adb install -r oldsrc/app/build/outputs/apk/stable/debug/*.apk
+            adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
+            sleep 3
+            adb shell pidof "$PKG"
+            adb shell am force-stop "$PKG"
+
+            cat > /tmp/munasabati_events.xml <<'XML'
+            <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+            <map>
+              <string name="events">[{"id":"legacy-1","title":"مناسبة قديمة محفوظة","category":"عائلية","recurrence":"yearly","details":"تفاصيل من الإصدار السابق","eventTime":1788210000000,"reminderMinutes":60,"remindersCsv":"60,1440","attachmentUri":"content://legacy/item/1","attachmentName":"دعوة.pdf","attachmentType":"application/pdf","locationName":"الدمام","locationUrl":"geo:26.4,50.1","color":"#2E7D6E","favorite":true,"pinned":true,"strongAlert":true,"calendarSync":true,"calendarId":"not-a-number","calendarEventId":123,"calendarFingerprint":"abc","updatedAt":1788200000000},{"id":22,"title":"مناسبة ثانية","category":"WORK","eventTime":1788296400000,"remindersCsv":"30,120"},{"id":"bad","eventTime":"broken"}]</string>
+            </map>
+            XML
+            cat > /tmp/munasabati_settings.xml <<'XML'
+            <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
+            <map>
+              <string name="app_lock_enabled">false</string>
+              <int name="hijri_offset" value="0" />
+            </map>
+            XML
+            adb push /tmp/munasabati_events.xml /data/local/tmp/munasabati_events.xml >/dev/null
+            adb push /tmp/munasabati_settings.xml /data/local/tmp/munasabati_settings.xml >/dev/null
+            adb shell run-as "$PKG" mkdir -p shared_prefs
+            adb shell run-as "$PKG" cp /data/local/tmp/munasabati_events.xml shared_prefs/munasabati_events.xml
+            adb shell run-as "$PKG" cp /data/local/tmp/munasabati_settings.xml shared_prefs/munasabati_settings.xml
+
+            adb install -r v5src/app/build/outputs/apk/stable/debug/*.apk
+            adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
+            sleep 8
+            adb shell pidof "$PKG"
+            adb logcat -d -t 1200 > /tmp/hotfix-logcat.txt
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.debug' /tmp/hotfix-logcat.txt || true)"
+            adb shell run-as "$PKG" test -f databases/munasabati_v5.db
+            adb shell run-as "$PKG" test -f shared_prefs/munasabati_events.xml
+            adb shell run-as "$PKG" sh -c 'ls files/legacy-v4-snapshot-*.json >/dev/null 2>&1 || true'
+
+      - name: Build unsigned Hotfix Stable release
+        working-directory: v5src
+        run: gradle :app:assembleStableRelease --stacktrace --no-daemon
+
+      - name: Collect signing utility
+        shell: bash
+        run: |
+          mkdir -p signing-tool
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" signing-tool/apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" signing-tool/zipalign
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.0.1-hotfix-unsigned
+          path: |
+            v5src/app/build/outputs/apk/stable/release/*.apk
+            signing-tool/apksigner.jar
+            signing-tool/zipalign
+          if-no-files-found: error
+          retention-days: 14
