@@ -4,7 +4,6 @@ on:
   push:
     branches: [ "munasabati-v5-build" ]
     paths:
-      - '.munasabati-v5-hotfix/**'
       - '.github/workflows/munasabati-v5-hotfix.yml'
   workflow_dispatch:
 
@@ -18,38 +17,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Restore old v5 Stable and new Hotfix source
+      - name: Restore old v5 Stable source
         shell: bash
         run: |
           set -euo pipefail
-          restore() {
-            dst="$1"
-            mkdir -p "$dst"
-            cat .munasabati-v5/source.part*.b64 > /tmp/base.b64
-            base64 --decode /tmp/base.b64 > /tmp/base.zip
-            echo "a1717136bd5d402a65cc8a6b8341c83c7ef74d6b0cf19650b784dc12d42ce34f  /tmp/base.zip" | sha256sum -c -
-            unzip -q /tmp/base.zip -d "$dst"
-            cat .munasabati-v5-beta2/overlay.part*.b64 > /tmp/beta2.b64
-            base64 --decode /tmp/beta2.b64 > /tmp/beta2.tgz
-            echo "f006f8def9552dddef974ff56e91856da38d3e6144896d0622132deb8c91b707  /tmp/beta2.tgz" | sha256sum -c -
-            tar -xzf /tmp/beta2.tgz -C "$dst"
-            cat .munasabati-v5-stable/overlay.part*.b64 > /tmp/stable.b64
-            base64 --decode /tmp/stable.b64 > /tmp/stable.tgz
-            echo "995d93371091cb4cbce75d439d601b906899d39bafca1e04af29287138a64419  /tmp/stable.tgz" | sha256sum -c -
-            tar -xzf /tmp/stable.tgz -C "$dst"
-          }
-          restore oldsrc
+          mkdir -p oldsrc
+          cat .munasabati-v5/source.part*.b64 > /tmp/base.b64
+          base64 --decode /tmp/base.b64 > /tmp/base.zip
+          echo "a1717136bd5d402a65cc8a6b8341c83c7ef74d6b0cf19650b784dc12d42ce34f  /tmp/base.zip" | sha256sum -c -
+          unzip -q /tmp/base.zip -d oldsrc
+          cat .munasabati-v5-beta2/overlay.part*.b64 > /tmp/beta2.b64
+          base64 --decode /tmp/beta2.b64 > /tmp/beta2.tgz
+          echo "f006f8def9552dddef974ff56e91856da38d3e6144896d0622132deb8c91b707  /tmp/beta2.tgz" | sha256sum -c -
+          tar -xzf /tmp/beta2.tgz -C oldsrc
+          cat .munasabati-v5-stable/overlay.part*.b64 > /tmp/stable.b64
+          base64 --decode /tmp/stable.b64 > /tmp/stable.tgz
+          echo "995d93371091cb4cbce75d439d601b906899d39bafca1e04af29287138a64419  /tmp/stable.tgz" | sha256sum -c -
+          tar -xzf /tmp/stable.tgz -C oldsrc
           cp -a oldsrc v5src
-          cat .munasabati-v5-hotfix/overlay.part*.b64 > /tmp/hotfix.b64
-          base64 --decode /tmp/hotfix.b64 > /tmp/hotfix.tgz
-          echo "b83d6b2532af47fd711311160829cc1e64c22f3492ad571692b606ba4158c90d  /tmp/hotfix.tgz" | sha256sum -c -
-          tar -xzf /tmp/hotfix.tgz -C v5src
-          grep -q 'versionCode = 61' v5src/app/build.gradle.kts
-          grep -q 'versionName = "5.0.1"' v5src/app/build.gradle.kts
-          grep -q 'const val VERSION = 3' v5src/app/src/main/java/com/rafat/munasabati/data/MunasabatiDatabase.kt
-          grep -q 'startupReady' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
 
-      - name: Apply old Stable compile fixes for upgrade fixture
+      - name: Apply compile fixes to old Stable fixture
         shell: bash
         run: |
           python - <<'PY'
@@ -68,6 +55,67 @@ jobs:
               s=s.replace('testImplementation("junit:junit:4.13.2")','testImplementation("junit:junit:4.13.2")\n    testImplementation("org.json:json:20240303")')
           p.write_text(s)
           PY
+
+      - name: Apply v5.0.1 fail-safe startup hotfix
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          root=Path('v5src')
+
+          p=root/'app/src/main/java/com/rafat/munasabati/compat/StrongAlertActivity.kt'
+          p.write_text(p.read_text().replace('gravity=android.view.Gravity.CENTER;padding=48;setBackgroundColor','gravity=android.view.Gravity.CENTER;setPadding(48,48,48,48);setBackgroundColor'))
+          p=root/'app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt'
+          p.write_text(p.read_text().replace('Icons.Default.DeleteRestore','Icons.Default.RestoreFromTrash').replace('@Composable fun AppLockGate(content:@Composable()->Unit){','@Composable fun AppLockGate(content: @Composable () -> Unit){'))
+
+          p=root/'app/build.gradle.kts'
+          s=p.read_text().replace('versionCode = 60','versionCode = 61').replace('versionName = "5.0.0"','versionName = "5.0.1"')
+          if 'implementation("androidx.fragment:fragment-ktx:1.8.5")' not in s:
+              marker='implementation("androidx.activity:activity-compose:1.11.0")'
+              s=s.replace(marker, marker+'\n    implementation("androidx.fragment:fragment-ktx:1.8.5")')
+          if 'testImplementation("org.json:json:20240303")' not in s:
+              s=s.replace('testImplementation("junit:junit:4.13.2")','testImplementation("junit:junit:4.13.2")\n    testImplementation("org.json:json:20240303")')
+          p.write_text(s)
+
+          p=root/'app/src/main/java/com/rafat/munasabati/MunasabatiApp.kt'
+          s=p.read_text().replace('import com.rafat.munasabati.migration.LegacyV4Migration\n','').replace('        if (BuildConfig.CHANNEL == "stable") runCatching { LegacyV4Migration(this, repository).runOnce() }\n','')
+          p.write_text(s)
+
+          p=root/'app/src/main/java/com/rafat/munasabati/compat/PrivacyManager.kt'
+          p.write_text('''package com.rafat.munasabati.compat\n\nimport android.content.Context\nimport java.security.MessageDigest\n\nclass PrivacyManager(private val context:Context){\n    private val prefs=context.getSharedPreferences("munasabati_settings",Context.MODE_PRIVATE)\n    private fun bool(key:String, default:Boolean=false):Boolean = when(val v=prefs.all[key]){\n        is Boolean -> v\n        is String -> v.equals("true",true) || v=="1"\n        is Number -> v.toInt()!=0\n        else -> default\n    }\n    private fun string(key:String):String? = when(val v=prefs.all[key]){\n        null -> null\n        is String -> v\n        else -> v.toString()\n    }\n    fun enabled()=bool("app_lock_enabled",false)\n    fun setEnabled(v:Boolean)=prefs.edit().putBoolean("app_lock_enabled",v).apply()\n    fun setPin(pin:String){prefs.edit().putString("app_lock_pin_hash",hash(pin)).apply()}\n    fun verify(pin:String)=string("app_lock_pin_hash")==hash(pin)\n    fun hasPin()=!string("app_lock_pin_hash").isNullOrBlank()\n    private fun hash(s:String)=MessageDigest.getInstance("SHA-256").digest(("munasabati|"+s).toByteArray()).joinToString(""){"%02x".format(it)}\n}\n''')
+
+          p=root/'app/src/main/java/com/rafat/munasabati/migration/LegacyV4Migration.kt'
+          s=p.read_text()
+          s=s.replace('''        val snapshot = JSONObject()\n        for (name in prefNames) {\n            val all = context.getSharedPreferences(name, Context.MODE_PRIVATE).all\n            if (all.isNotEmpty()) {\n                val stored = JSONObject()\n                all.forEach { (k, v) -> stored.put(k, encodePrefValue(v)) }\n                snapshot.put(name, stored)\n            }\n        }\n''','''        val snapshot = JSONObject()\n        val notes = mutableListOf<String>()\n        for (name in prefNames) {\n            runCatching {\n                val all = context.getSharedPreferences(name, Context.MODE_PRIVATE).all\n                if (all.isNotEmpty()) {\n                    val stored = JSONObject()\n                    all.forEach { (k, v) -> runCatching { stored.put(k, encodePrefValue(v)) } }\n                    snapshot.put(name, stored)\n                }\n            }.onFailure { notes += "snapshot_failed:$name" }\n        }\n''')
+          s=s.replace('''        val backup = File(context.filesDir, "legacy-v4-snapshot-${System.currentTimeMillis()}.json").apply { writeText(snapshot.toString(2)) }\n        repo.putMeta("legacy_v4_backup", backup.absolutePath)\n        repo.putMeta("legacy_v4_snapshot_version", "4.8-compatible")\n''','''        val backup = runCatching {\n            File(context.filesDir, "legacy-v4-snapshot-${System.currentTimeMillis()}.json").apply { writeText(snapshot.toString(2)) }\n        }.getOrNull()\n        backup?.let { repo.putMeta("legacy_v4_backup", it.absolutePath) }\n        repo.putMeta("legacy_v4_snapshot_version", "4.8-compatible")\n''')
+          s=s.replace('''        for (i in 0 until array.length()) {\n            val obj = array.optJSONObject(i) ?: continue\n            parseV4Event(obj)?.let { event ->\n                val fingerprint = "${event.id}|${event.title}|${event.startEpochMillis}"\n                if (seen.add(fingerprint)) {\n                    repo.upsertEvent(event)\n                    event.attachmentUri?.takeIf { it.isNotBlank() }?.let { repo.addMedia(event.id, it, event.attachmentType.ifBlank { "attachment" }) }\n                    imported++\n                }\n            }\n        }\n''','''        for (i in 0 until array.length()) {\n            val obj = array.optJSONObject(i) ?: continue\n            runCatching {\n                parseV4Event(obj)?.let { event ->\n                    val fingerprint = "${event.id}|${event.title}|${event.startEpochMillis}"\n                    if (seen.add(fingerprint)) {\n                        repo.upsertEvent(event)\n                        event.attachmentUri?.takeIf { it.isNotBlank() }?.let { repo.addMedia(event.id, it, event.attachmentType.ifBlank { "attachment" }) }\n                        imported++\n                    }\n                }\n            }.onFailure { notes += "event_failed:$i:${it.javaClass.simpleName}" }\n        }\n''')
+          s=s.replace('return Result(true, imported, backup.absolutePath, listOf("legacy_data_preserved", "exact_v4_event_mapping", "legacy_features_snapshot_preserved"))','return Result(true, imported, backup?.absolutePath, notes + listOf("legacy_data_preserved", "exact_v4_event_mapping", "legacy_features_snapshot_preserved"))')
+          p.write_text(s)
+
+          p=root/'app/src/main/java/com/rafat/munasabati/data/MunasabatiDatabase.kt'
+          s=p.read_text().replace('            additions.forEach { definition -> db.execSQL("ALTER TABLE events ADD COLUMN $definition") }','            additions.forEach { definition -> runCatching { db.execSQL("ALTER TABLE events ADD COLUMN $definition") } }')
+          needle='''    companion object { const val DB_NAME = "munasabati_v5.db"; const val VERSION = 2 }\n}'''
+          replacement='''    override fun onOpen(db: SQLiteDatabase) {\n        super.onOpen(db)\n        runCatching { repairSchema(db) }\n    }\n\n    private fun repairSchema(db: SQLiteDatabase) {\n        db.execSQL("CREATE TABLE IF NOT EXISTS app_meta(key TEXT PRIMARY KEY, value TEXT)")\n        db.execSQL("CREATE TABLE IF NOT EXISTS people(id TEXT PRIMARY KEY, contact_uri TEXT, name TEXT NOT NULL, phone TEXT, relationship TEXT NOT NULL DEFAULT '', last_interaction_at INTEGER)")\n        db.execSQL("CREATE TABLE IF NOT EXISTS interactions(id INTEGER PRIMARY KEY AUTOINCREMENT, person_id TEXT NOT NULL, event_id TEXT, kind TEXT NOT NULL, created_at INTEGER NOT NULL)")\n        db.execSQL("CREATE TABLE IF NOT EXISTS event_media(id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL, uri TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'image')")\n        val cols = mutableSetOf<String>()\n        db.rawQuery("PRAGMA table_info(events)", null).use { c ->\n            val idx = c.getColumnIndex("name")\n            while (c.moveToNext()) if (idx >= 0) cols += c.getString(idx)\n        }\n        if (cols.isEmpty()) { onCreate(db); return }\n        val defs = linkedMapOf(\n            "recurrence" to "TEXT NOT NULL DEFAULT 'none'",\n            "reminders_csv" to "TEXT NOT NULL DEFAULT ''",\n            "attachment_uri" to "TEXT",\n            "attachment_name" to "TEXT NOT NULL DEFAULT ''",\n            "attachment_type" to "TEXT NOT NULL DEFAULT ''",\n            "location_url" to "TEXT NOT NULL DEFAULT ''",\n            "legacy_color" to "TEXT NOT NULL DEFAULT ''",\n            "favorite" to "INTEGER NOT NULL DEFAULT 0",\n            "pinned" to "INTEGER NOT NULL DEFAULT 0",\n            "strong_alert" to "INTEGER NOT NULL DEFAULT 0",\n            "calendar_id" to "INTEGER",\n            "calendar_event_id" to "INTEGER",\n            "calendar_sync" to "INTEGER NOT NULL DEFAULT 0",\n            "calendar_fingerprint" to "TEXT NOT NULL DEFAULT ''",\n            "legacy_json" to "TEXT NOT NULL DEFAULT ''"\n        )\n        defs.forEach { (name, def) -> if (name !in cols) runCatching { db.execSQL("ALTER TABLE events ADD COLUMN $name $def") } }\n        runCatching { db.execSQL("CREATE INDEX IF NOT EXISTS idx_events_start ON events(start_ms)") }\n        runCatching { db.execSQL("CREATE INDEX IF NOT EXISTS idx_events_person ON events(person_id)") }\n    }\n\n    companion object { const val DB_NAME = "munasabati_v5.db"; const val VERSION = 3 }\n}'''
+          if needle not in s: raise SystemExit('database companion marker not found')
+          p.write_text(s.replace(needle,replacement))
+
+          p=root/'app/src/main/java/com/rafat/munasabati/ui/AppUi.kt'
+          s=p.read_text()
+          if 'import com.rafat.munasabati.migration.LegacyV4Migration' not in s:
+              s=s.replace('import com.rafat.munasabati.model.*','import com.rafat.munasabati.model.*\nimport com.rafat.munasabati.migration.LegacyV4Migration')
+          old='''@Composable fun MunasabatiRoot() {\n    AppLockGate {\n    val nav = rememberNavController()\n    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {\n'''
+          new='''@Composable fun MunasabatiRoot() {\n    val context = LocalContext.current\n    var startupReady by remember { mutableStateOf(BuildConfig.CHANNEL != "stable") }\n    var startupMessage by remember { mutableStateOf("جاري تجهيز بياناتك بأمان…") }\n    LaunchedEffect(Unit) {\n        if (BuildConfig.CHANNEL == "stable") {\n            val result = withContext(Dispatchers.IO) { runCatching { LegacyV4Migration(context, repo(context)).runOnce() } }\n            startupMessage = result.fold(\n                onSuccess = { if (it.imported > 0) "تم نقل ${it.imported} مناسبة بنجاح" else "تم تجهيز التطبيق" },\n                onFailure = { "تم فتح التطبيق بوضع آمن؛ بيانات v4 ما زالت محفوظة" }\n            )\n            startupReady = true\n        }\n    }\n    if (!startupReady) {\n        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {\n            Box(Modifier.fillMaxSize().padding(28.dp), contentAlignment = Alignment.Center) {\n                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {\n                    CircularProgressIndicator()\n                    Text("مناسباتي", fontSize = 28.sp, fontWeight = FontWeight.Bold)\n                    Text(startupMessage, textAlign = TextAlign.Center)\n                }\n            }\n        }\n        return\n    }\n    AppLockGate {\n    val nav = rememberNavController()\n    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {\n'''
+          if old not in s: raise SystemExit('root marker not found')
+          s=s.replace(old,new)
+          old2='''    LaunchedEffect(Unit) { buckets = withContext(Dispatchers.IO) { repo(context).smartBuckets() } }\n'''
+          new2='''    LaunchedEffect(Unit) {\n        buckets = withContext(Dispatchers.IO) {\n            runCatching { repo(context).smartBuckets() }.getOrElse { SmartCenterBuckets(emptyList(), emptyList(), emptyList(), emptyList(), emptyList()) }\n        }\n    }\n'''
+          if old2 not in s: raise SystemExit('center marker not found')
+          p.write_text(s.replace(old2,new2))
+          PY
+          grep -q 'versionCode = 61' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.1"' v5src/app/build.gradle.kts
+          grep -q 'const val VERSION = 3' v5src/app/src/main/java/com/rafat/munasabati/data/MunasabatiDatabase.kt
+          grep -q 'startupReady' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
 
       - uses: actions/setup-java@v5
         with:
@@ -118,26 +166,19 @@ jobs:
             sleep 3
             adb shell pidof "$PKG"
             adb shell am force-stop "$PKG"
-
             cat > /tmp/munasabati_events.xml <<'XML'
             <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-            <map>
-              <string name="events">[{"id":"legacy-1","title":"مناسبة قديمة محفوظة","category":"عائلية","recurrence":"yearly","details":"تفاصيل من الإصدار السابق","eventTime":1788210000000,"reminderMinutes":60,"remindersCsv":"60,1440","attachmentUri":"content://legacy/item/1","attachmentName":"دعوة.pdf","attachmentType":"application/pdf","locationName":"الدمام","locationUrl":"geo:26.4,50.1","color":"#2E7D6E","favorite":true,"pinned":true,"strongAlert":true,"calendarSync":true,"calendarId":"not-a-number","calendarEventId":123,"calendarFingerprint":"abc","updatedAt":1788200000000},{"id":22,"title":"مناسبة ثانية","category":"WORK","eventTime":1788296400000,"remindersCsv":"30,120"},{"id":"bad","eventTime":"broken"}]</string>
-            </map>
+            <map><string name="events">[{"id":"legacy-1","title":"مناسبة قديمة محفوظة","category":"عائلية","recurrence":"yearly","details":"تفاصيل من الإصدار السابق","eventTime":1788210000000,"reminderMinutes":60,"remindersCsv":"60,1440","attachmentUri":"content://legacy/item/1","attachmentName":"دعوة.pdf","attachmentType":"application/pdf","locationName":"الدمام","locationUrl":"geo:26.4,50.1","color":"#2E7D6E","favorite":true,"pinned":true,"strongAlert":true,"calendarSync":true,"calendarId":"not-a-number","calendarEventId":123,"calendarFingerprint":"abc","updatedAt":1788200000000},{"id":22,"title":"مناسبة ثانية","category":"WORK","eventTime":1788296400000,"remindersCsv":"30,120"},{"id":"bad","eventTime":"broken"}]</string></map>
             XML
             cat > /tmp/munasabati_settings.xml <<'XML'
             <?xml version='1.0' encoding='utf-8' standalone='yes' ?>
-            <map>
-              <string name="app_lock_enabled">false</string>
-              <int name="hijri_offset" value="0" />
-            </map>
+            <map><string name="app_lock_enabled">false</string><int name="hijri_offset" value="0" /></map>
             XML
             adb push /tmp/munasabati_events.xml /data/local/tmp/munasabati_events.xml >/dev/null
             adb push /tmp/munasabati_settings.xml /data/local/tmp/munasabati_settings.xml >/dev/null
             adb shell run-as "$PKG" mkdir -p shared_prefs
             adb shell run-as "$PKG" cp /data/local/tmp/munasabati_events.xml shared_prefs/munasabati_events.xml
             adb shell run-as "$PKG" cp /data/local/tmp/munasabati_settings.xml shared_prefs/munasabati_settings.xml
-
             adb install -r v5src/app/build/outputs/apk/stable/debug/*.apk
             adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
             adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
@@ -147,7 +188,6 @@ jobs:
             test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati.debug' /tmp/hotfix-logcat.txt || true)"
             adb shell run-as "$PKG" test -f databases/munasabati_v5.db
             adb shell run-as "$PKG" test -f shared_prefs/munasabati_events.xml
-            adb shell run-as "$PKG" sh -c 'ls files/legacy-v4-snapshot-*.json >/dev/null 2>&1 || true'
 
       - name: Build unsigned Hotfix Stable release
         working-directory: v5src
