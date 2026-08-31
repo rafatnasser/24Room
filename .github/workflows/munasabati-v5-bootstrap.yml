@@ -1,6 +1,11 @@
 name: Munasabati v5 isolated build
 
 on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.munasabati-v5/**'
+      - '.github/workflows/munasabati-v5-bootstrap.yml'
   workflow_dispatch:
 
 permissions:
@@ -22,7 +27,7 @@ jobs:
           set -euo pipefail
           cat .munasabati-v5/source.part*.b64 > /tmp/munasabati-v5.b64
           base64 --decode /tmp/munasabati-v5.b64 > /tmp/Munasabati-v5-source.zip
-          echo "477778e8e1a42206f5b1ae8893cd7bcd04e379983cab6072e03fc8d909e4a271  /tmp/Munasabati-v5-source.zip" | sha256sum -c -
+          echo "a1717136bd5d402a65cc8a6b8341c83c7ef74d6b0cf19650b784dc12d42ce34f  /tmp/Munasabati-v5-source.zip" | sha256sum -c -
           mkdir -p v5src
           unzip -q /tmp/Munasabati-v5-source.zip -d v5src
           test -f v5src/settings.gradle.kts
