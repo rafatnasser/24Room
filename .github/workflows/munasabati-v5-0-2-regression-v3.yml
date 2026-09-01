@@ -96,14 +96,12 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            set -eu
-            PKG=com.rafat.munasabati
             adb install -r /tmp/v502-test.apk
-            adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
             adb logcat -c
-            adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
+            adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
             sleep 10
-            adb shell pidof "$PKG"
+            adb shell pidof com.rafat.munasabati
             adb logcat -d -t 1800 > /tmp/log.txt
             test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/log.txt || true)"
       - name: Collect release
