@@ -1,0 +1,118 @@
+name: Munasabati v5.0.3 Final User Fixes
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.github/workflows/munasabati-v5.0.3-final-user-fixes.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore exact passed v5.0.2 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502-brand/source.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/v502.tgz
+          echo "35a933424119294e80c930a5f14fb6bf7c4e607a1cdcb7c505716a96c076d2e0  /tmp/v502.tgz" | sha256sum -c -
+          mkdir -p v5src
+          tar -xzf /tmp/v502.tgz -C v5src
+
+      - name: Apply focused v5.0.3 repairs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .munasabati-v5.0.3-final/apply_userfix503.py v5src
+
+      - name: Static regression gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 63' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.3"' v5src/app/build.gradle.kts
+          grep -q 'munasabati_events_sound_v503' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
+          grep -q 'munasabati_events_silent_v503' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
+          grep -q 'munasabati_strong_v503' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
+          grep -q 'fun uiSoundEnabled()' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'fun uiClick()' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'if(!saved)return false' v5src/app/src/main/java/com/rafat/munasabati/compat/LegacyDataTools.kt
+          grep -q 'repo.eventById(e.id)==null' v5src/app/src/main/java/com/rafat/munasabati/compat/LegacyDataTools.kt
+          grep -q 'الإعدادات واللغة والصوت' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'Interface & icon sounds' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'CreditsCard()' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'رأفت ناصر الناصر' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'Rafat Nasser Alnasser' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'prefs.setLanguage("ar")' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'prefs.setLanguage("en")' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Unit tests and release builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p v5src :app:testStableDebugUnitTest --stacktrace --no-daemon
+          gradle -p v5src :app:assembleStableDebug :app:assembleStableRelease :app:assembleStableDebugAndroidTest --stacktrace --no-daemon
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Instrumented feature regression
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            gradle -p v5src :app:connectedStableDebugAndroidTest --stacktrace --no-daemon
+
+      - name: Package unsigned release and signing tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          APK=$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)
+          test -n "$APK"
+          cp "$APK" final/Munasabati-v5.0.3-FINAL-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" final/apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" final/zipalign
+          chmod +x final/zipalign
+          sha256sum final/Munasabati-v5.0.3-FINAL-unsigned.apk > final/unsigned-sha256.txt
+          printf 'Munasabati 5.0.3 final focused fixes\nversionCode=63\nbase=exact passed 5.0.2 source\n' > final/build-info.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.0.3-final-user-fixes-passed
+          path: final/*
+          if-no-files-found: error
+          retention-days: 7
