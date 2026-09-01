@@ -1,0 +1,175 @@
+name: Munasabati v5.0.4 Calendar AhlBayt UI
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.github/workflows/munasabati-v5.0.4-calendar-ahlbayt-ui.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-test-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore exact passed v5.0.2 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502-brand/source.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/v502.tgz
+          echo "35a933424119294e80c930a5f14fb6bf7c4e607a1cdcb7c505716a96c076d2e0  /tmp/v502.tgz" | sha256sum -c -
+          mkdir -p v5src
+          tar -xzf /tmp/v502.tgz -C v5src
+
+      - name: Restore exact v5.0.3 user fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .munasabati-v5.0.3-final/apply_userfix503.py v5src
+          grep -q 'versionCode = 63' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.3"' v5src/app/build.gradle.kts
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK
+        shell: bash
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Build v5.0.3 upgrade baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p v5src :app:assembleStableRelease --stacktrace --no-daemon
+          V503=$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)
+          test -n "$V503"
+          cp "$V503" /tmp/v503-unsigned.apk
+
+      - name: Apply focused v5.0.4 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .munasabati-v5.0.4/v504.patch.gz.b64 | gunzip > /tmp/v504.patch
+          patch -p1 -d v5src < /tmp/v504.patch
+
+      - name: Static v5.0.4 gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'versionCode = 64' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.4"' v5src/app/build.gradle.kts
+          grep -q 'مناسبات سابقة' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          ! grep -Fq 'tr("متأخرة", "Overdue")' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'route = "add/{date}"' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'اضغط على يوم فارغ لإضافة مناسبة' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'DayAgenda' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'fun nextReminderEpoch' v5src/app/src/main/java/com/rafat/munasabati/compat/AhlBaytCalendar.kt
+          grep -q 'fun showTestNotification' v5src/app/src/main/java/com/rafat/munasabati/compat/AhlBaytCalendar.kt
+          grep -q 'مناسبات أهل البيت عليهم السلام' v5src/app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt
+          grep -q 'Ahl al-Bayt occasions' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'containerColor = DeepGreen' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+
+      - name: Unit tests and v5.0.4 builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p v5src :app:testStableDebugUnitTest --stacktrace --no-daemon
+          gradle -p v5src :app:assembleStableDebug :app:assembleStableRelease :app:assembleStableDebugAndroidTest --stacktrace --no-daemon
+          V504=$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)
+          test -n "$V504"
+          cp "$V504" /tmp/v504-unsigned.apk
+
+      - name: Sign v5.0.3 and v5.0.4 with one test certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore /tmp/test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Munasabati v504 Upgrade Test,O=Munasabati,C=SA"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 /tmp/v503-unsigned.apk /tmp/v503-aligned.apk
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 /tmp/v504-unsigned.apk /tmp/v504-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v503.apk /tmp/v503-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v504.apk /tmp/v504-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v503.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v504.apk
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Instrumented features and data-preserving upgrade
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -e
+            gradle -p v5src :app:connectedStableDebugAndroidTest --stacktrace --no-daemon
+            adb uninstall com.rafat.munasabati || true
+            adb install /tmp/v503.apk
+            adb root || true
+            adb wait-for-device
+            sleep 2
+            adb shell mkdir -p /data/user/0/com.rafat.munasabati/shared_prefs
+            printf '%s' 'PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0idXRmLTgiIHN0YW5kYWxvbmU9InllcyIgPz4KPG1hcD48c3RyaW5nIG5hbWU9ImV2ZW50cyI+W3siaWQiOiJ1cGdyYWRlLTUwMy1rZWVwIiwidGl0bGUiOiLZhdmG2KfYs9io2Kkg2YXYrdmB2YjYuNipINmE2KfYrtiq2KjYp9ixIDUuMC4zIiwiY2F0ZWdvcnkiOiLYudin2KbZhNmK2KkiLCJyZWN1cnJlbmNlIjoieWVhcmx5IiwiZXZlbnRUaW1lIjoxNzkwMDAwMDAwMDAwLCJyZW1pbmRlcnNDc3YiOiI2MCwxNDQwIiwic3Ryb25nQWxlcnQiOnRydWUsImZhdm9yaXRlIjp0cnVlfV08L3N0cmluZz48L21hcD4K' | base64 -d > /tmp/events.xml
+            adb push /tmp/events.xml /data/local/tmp/events.xml >/dev/null
+            adb shell cp /data/local/tmp/events.xml /data/user/0/com.rafat.munasabati/shared_prefs/munasabati_events.xml
+            U=$(adb shell stat -c %u /data/user/0/com.rafat.munasabati | tr -d '\r'); adb shell chown "$U:$U" /data/user/0/com.rafat.munasabati/shared_prefs/munasabati_events.xml
+            adb shell chmod 600 /data/user/0/com.rafat.munasabati/shared_prefs/munasabati_events.xml
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
+            sleep 10
+            adb shell pidof com.rafat.munasabati
+            adb shell am force-stop com.rafat.munasabati
+            adb exec-out cat /data/user/0/com.rafat.munasabati/databases/munasabati_v5.db > /tmp/before.sqlite
+            python -c "import sqlite3;db=sqlite3.connect('/tmp/before.sqlite');r=db.execute(\"select title from events where id='upgrade-503-keep'\").fetchone();assert r;print('V503_DATA_READY',r)"
+            adb logcat -c
+            adb install -r /tmp/v504.apk
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
+            sleep 10
+            adb shell pidof com.rafat.munasabati
+            adb logcat -d -t 1600 > /tmp/v504.log
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v504.log || true)"
+            adb exec-out cat /data/user/0/com.rafat.munasabati/databases/munasabati_v5.db > /tmp/after.sqlite
+            python -c "import sqlite3;db=sqlite3.connect('/tmp/after.sqlite');r=db.execute(\"select title,recurrence,reminders_csv,strong_alert from events where id='upgrade-503-keep'\").fetchone();assert r and r[1]=='yearly' and r[2]=='60,1440' and r[3]==1,r;print('V504_DATA_PRESERVED',r)"
+            adb shell dumpsys package com.rafat.munasabati | grep -q 'versionCode=64'
+            echo V504_ALL_GATES_PASS
+
+      - name: Package final unsigned release and signing tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          cp /tmp/v504-unsigned.apk final/Munasabati-v5.0.4-FINAL-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" final/apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" final/zipalign
+          printf 'Munasabati 5.0.4\nversionCode=64\ncalendar-click=PASS\nahlbayt-active=PASS\nupgrade-v503-v504=PASS\n' > final/build-info.txt
+          sha256sum final/Munasabati-v5.0.4-FINAL-unsigned.apk > final/unsigned-sha256.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.0.4-final-upgrade-passed
+          path: final/*
+          if-no-files-found: error
+          retention-days: 7
