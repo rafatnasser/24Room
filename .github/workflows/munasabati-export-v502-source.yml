@@ -1,0 +1,30 @@
+name: Munasabati Export Exact v5.0.2 Source
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.github/workflows/munasabati-export-v502-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore exact passed v5.0.2 source archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502-brand/source.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/Munasabati-v5.0.2-exact-source.tgz
+          echo "35a933424119294e80c930a5f14fb6bf7c4e607a1cdcb7c505716a96c076d2e0  /tmp/Munasabati-v5.0.2-exact-source.tgz" | sha256sum -c -
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.0.2-exact-source
+          path: /tmp/Munasabati-v5.0.2-exact-source.tgz
+          if-no-files-found: error
+          retention-days: 2
