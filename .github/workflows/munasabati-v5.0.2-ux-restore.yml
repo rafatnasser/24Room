@@ -49,7 +49,6 @@ jobs:
           if not m: raise SystemExit('v5.0.1 recovery patch not found')
           Path('/tmp/apply-recovery.py').write_text(textwrap.dedent(m.group(1)))
           PY
-          # Recovery script expects oldsrc and v5src.
           cp -a v5src oldsrc
           python /tmp/apply-recovery.py
           grep -q 'versionCode = 61' v5src/app/build.gradle.kts
@@ -62,6 +61,7 @@ jobs:
         run: |
           set -euo pipefail
           python .munasabati-v5.0.2/apply.py
+          python .munasabati-v5.0.2/fix_compile.py
           grep -q 'versionCode = 62' v5src/app/build.gradle.kts
           grep -q 'versionName = "5.0.2"' v5src/app/build.gradle.kts
           grep -q 'munasabati_events_v5_2' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
@@ -128,7 +128,6 @@ jobs:
             adb install -r /tmp/v5.0.1-test.apk
             adb root
             adb wait-for-device
-            # Seed v4-compatible events and settings before updating, including legacy language/sound value types.
             python - <<'PY'
             import json, html
             events=[
@@ -146,8 +145,6 @@ jobs:
             adb shell chown -R "$U:$U" /data/data/$PKG/shared_prefs
             adb shell chmod 660 /data/data/$PKG/shared_prefs/*.xml
             adb shell am force-stop $PKG || true
-
-            # Update in place without clearing data.
             adb install -r /tmp/v5.0.2-test.apk
             adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
             adb logcat -c
@@ -156,13 +153,9 @@ jobs:
             adb shell pidof $PKG
             adb logcat -d -t 2500 > /tmp/v502.log
             if grep -n -A80 -B20 -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v502.log; then exit 1; fi
-
-            # Arabic UI and designer credits must be visible.
             adb shell uiautomator dump /sdcard/ui-ar.xml >/dev/null
             adb pull /sdcard/ui-ar.xml /tmp/ui-ar.xml >/dev/null
             grep -q 'مناسباتي' /tmp/ui-ar.xml
-
-            # Flip language using the same persisted setting the UI control writes and verify visible English UI + LTR text labels.
             adb shell am force-stop $PKG
             adb shell sed -i 's/>ARABIC</>en</' /data/data/$PKG/shared_prefs/munasabati_settings.xml
             adb shell am start -W -n $PKG/com.rafat.munasabati.MainActivity
@@ -173,12 +166,7 @@ jobs:
             grep -q 'Center' /tmp/ui-en.xml
             grep -q 'Calendar' /tmp/ui-en.xml
             grep -q 'More' /tmp/ui-en.xml
-
-            # Verify sound channel configuration exists and is a high-importance channel.
             adb shell dumpsys notification > /tmp/notification.txt
-            grep -q 'munasabati_events_v5_2' /tmp/notification.txt || true
-
-            # Verify migration preserved events and database is still healthy.
             adb shell test -f /data/data/$PKG/databases/munasabati_v5.db
             adb pull /data/data/$PKG/databases/munasabati_v5.db /tmp/db.sqlite >/dev/null
             python - <<'PY'
@@ -189,8 +177,6 @@ jobs:
             assert 'مناسبة محفوظة بعد التحديث' in titles,titles
             print('V502_DATA_PRESERVED',len(titles))
             PY
-
-            # Credits and delete implementation are also compile-time gated above; make sure settings activity route can render.
             adb shell am force-stop $PKG
             adb shell sed -i 's/>en</>ar</' /data/data/$PKG/shared_prefs/munasabati_settings.xml
             adb shell am start -W -n $PKG/com.rafat.munasabati.MainActivity
