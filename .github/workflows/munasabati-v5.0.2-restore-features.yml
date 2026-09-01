@@ -1,4 +1,4 @@
-name: Munasabati v5.0.2 Restore Features
+name: Munasabati v5.0.2 Final Restore Features
 
 on:
   push:
@@ -11,13 +11,12 @@ permissions:
   contents: read
 
 jobs:
-  restore-features:
+  final-v502:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-
-      - name: Restore sources
+      - name: Restore source
         shell: bash
         run: |
           set -euo pipefail
@@ -35,258 +34,63 @@ jobs:
           echo "995d93371091cb4cbce75d439d601b906899d39bafca1e04af29287138a64419  /tmp/stable.tgz" | sha256sum -c -
           tar -xzf /tmp/stable.tgz -C oldsrc
           cp -a oldsrc v5src
-
-      - name: Apply v5.0.1 recovery baseline
+      - name: Apply recovery and v5.0.2 fixes
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
-          import re, textwrap
+          import re,textwrap
           src=Path('.github/workflows/munasabati-v5-hotfix-release-upgrade.yml').read_text()
-          marker='- name: Apply common compile fixes and v5.0.1 recovery hotfix'
-          section=src[src.index(marker):]
-          m=re.search(r"python - <<'PY'\n(.*?)\n\s+PY", section, re.S)
-          if not m: raise SystemExit('v5.0.1 recovery patch not found')
-          code=textwrap.dedent(m.group(1))
-          Path('/tmp/apply-v501.py').write_text(code)
+          section=src[src.index('- name: Apply common compile fixes and v5.0.1 recovery hotfix'):]
+          m=re.search(r"python - <<'PY'\n(.*?)\n\s+PY",section,re.S)
+          if not m: raise SystemExit('recovery patch missing')
+          Path('/tmp/recovery.py').write_text(textwrap.dedent(m.group(1)))
           PY
-          python /tmp/apply-v501.py
-          grep -q 'versionCode = 61' v5src/app/build.gradle.kts
-          cp -a v5src newsrc
-
-      - name: Apply v5.0.2 restored features
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          import re
-          root=Path('newsrc')
-
-          # Version bump; keep reliability settings from v5.0.1.
-          p=root/'app/build.gradle.kts'; s=p.read_text()
-          s=s.replace('versionCode = 61','versionCode = 62').replace('versionName = "5.0.1"','versionName = "5.0.2"')
-          p.write_text(s)
-
-          # Vibration permission restored from v4 behavior.
-          p=root/'app/src/main/AndroidManifest.xml'; s=p.read_text()
-          if 'android.permission.VIBRATE' not in s:
-              s=s.replace('<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />','<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.VIBRATE" />')
-          p.write_text(s)
-
-          # Interface sound/haptic feedback, using the original v4 preference keys.
-          p=root/'app/src/main/java/com/rafat/munasabati/compat/UiFeedback.kt'
-          p.write_text(r'''package com.rafat.munasabati.compat
-
-import android.content.Context
-import android.media.AudioManager
-import android.media.ToneGenerator
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
-
-object UiFeedback {
-    private fun prefs(c:Context)=c.getSharedPreferences("munasabati_settings",Context.MODE_PRIVATE)
-    fun soundEnabled(c:Context):Boolean=when(val v=runCatching{prefs(c).all["sound_enabled"]}.getOrNull()){
-        is Boolean->v; is String->v.equals("true",true)||v=="1"; is Number->v.toInt()!=0; else->true
-    }
-    fun setSoundEnabled(c:Context,v:Boolean){prefs(c).edit().putBoolean("sound_enabled",v).apply()}
-    private fun hapticEnabled(c:Context):Boolean=when(val v=runCatching{prefs(c).all["haptic_enabled"]}.getOrNull()){
-        is Boolean->v; is String->v.equals("true",true)||v=="1"; is Number->v.toInt()!=0; else->true
-    }
-    fun click(c:Context){tone(c,ToneGenerator.TONE_PROP_BEEP,35);vibrate(c,18)}
-    fun success(c:Context){tone(c,ToneGenerator.TONE_PROP_ACK,80);vibrate(c,35)}
-    fun delete(c:Context){tone(c,ToneGenerator.TONE_PROP_NACK,70);vibrate(c,45)}
-    fun preview(c:Context){success(c)}
-    private fun tone(c:Context,tone:Int,ms:Int){if(!soundEnabled(c))return;runCatching{ToneGenerator(AudioManager.STREAM_SYSTEM,55).apply{startTone(tone,ms);android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({release()},(ms+80).toLong())}}}
-    private fun vibrate(c:Context,ms:Long){if(!hapticEnabled(c))return;runCatching{val v=if(Build.VERSION.SDK_INT>=31)c.getSystemService(VibratorManager::class.java).defaultVibrator else @Suppress("DEPRECATION") c.getSystemService(Vibrator::class.java);if(Build.VERSION.SDK_INT>=26)v.vibrate(VibrationEffect.createOneShot(ms,VibrationEffect.DEFAULT_AMPLITUDE))else @Suppress("DEPRECATION") v.vibrate(ms)}}
-}
-''')
-
-          # Restore audible notification channel using a new channel id so Android does not retain a silent old channel.
-          p=root/'app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt'; s=p.read_text()
-          s=s.replace('import android.os.Build','import android.os.Build\nimport android.media.AudioAttributes\nimport android.media.RingtoneManager')
-          s=s.replace('const val CHANNEL = "munasabati_events_v5"','const val CHANNEL = "munasabati_events_v502"')
-          old='if (Build.VERSION.SDK_INT >= 26) manager.createNotificationChannel(NotificationChannel(CHANNEL, "مناسباتي", if (event.importance >= 2) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT))'
-          new='''if (Build.VERSION.SDK_INT >= 26) {\n            val prefs=context.getSharedPreferences("munasabati_settings",Context.MODE_PRIVATE)\n            val sound=when(val v=runCatching{prefs.all["sound_enabled"]}.getOrNull()){is Boolean->v;is String->v.equals("true",true)||v=="1";is Number->v.toInt()!=0;else->true}\n            val channel=NotificationChannel(CHANNEL,"مناسباتي",NotificationManager.IMPORTANCE_HIGH).apply{enableVibration(true);vibrationPattern=longArrayOf(0,250,120,250);if(sound)setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION),AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT).build())else setSound(null,null)}\n            manager.createNotificationChannel(channel)\n        }'''
-          if old not in s: raise SystemExit('notification channel marker missing')
-          p.write_text(s.replace(old,new))
-
-          # Strong Alert gets its alarm sound/vibration back and stops cleanly.
-          p=root/'app/src/main/java/com/rafat/munasabati/compat/StrongAlertActivity.kt'
-          p.write_text(r'''package com.rafat.munasabati.compat
-
-import android.app.Activity
-import android.media.Ringtone
-import android.media.RingtoneManager
-import android.os.*
-import android.view.WindowManager
-import android.widget.*
-import com.rafat.munasabati.MunasabatiApp
-
-class StrongAlertActivity:Activity(){
-    private var ringtone:Ringtone?=null
-    private var vibrator:android.os.Vibrator?=null
-    override fun onCreate(savedInstanceState:Bundle?){
-        super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        val id=intent.getStringExtra("event_id");val e=id?.let{(applicationContext as MunasabatiApp).repository.eventById(it)}
-        if(UiFeedback.soundEnabled(this)) runCatching{val uri=RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)?:RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);ringtone=RingtoneManager.getRingtone(this,uri);ringtone?.play()}
-        runCatching{vibrator=if(Build.VERSION.SDK_INT>=31)getSystemService(android.os.VibratorManager::class.java).defaultVibrator else @Suppress("DEPRECATION") getSystemService(android.os.Vibrator::class.java);val pattern=longArrayOf(0,500,250,500,250,800);if(Build.VERSION.SDK_INT>=26)vibrator?.vibrate(android.os.VibrationEffect.createWaveform(pattern,0))else @Suppress("DEPRECATION") vibrator?.vibrate(pattern,0)}
-        val box=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;gravity=android.view.Gravity.CENTER;setPadding(48,48,48,48);setBackgroundColor(0xFFFFF9F0.toInt())}
-        box.addView(TextView(this).apply{text="تنبيه مهم";textSize=30f;gravity=android.view.Gravity.CENTER})
-        box.addView(TextView(this).apply{text=e?.title?:"مناسبة مهمة";textSize=24f;gravity=android.view.Gravity.CENTER;setPadding(0,32,0,32)})
-        box.addView(Button(this).apply{text="تم الاطلاع";setOnClickListener{e?.let{(applicationContext as MunasabatiApp).repository.upsertEvent(it.copy(acknowledged=true,updatedAt=System.currentTimeMillis()))};finish()}})
-        setContentView(box)
-    }
-    override fun onDestroy(){runCatching{ringtone?.stop()};runCatching{vibrator?.cancel()};super.onDestroy()}
-}
-''')
-
-          # Main UI: delete confirmation + immediate visual removal, working language option, restored credits, sound option.
-          p=root/'app/src/main/java/com/rafat/munasabati/ui/AppUi.kt'; s=p.read_text()
-          if 'import com.rafat.munasabati.compat.UiFeedback' not in s:
-              s=s.replace('import com.rafat.munasabati.calendar.CalendarRules','import com.rafat.munasabati.calendar.CalendarRules\nimport com.rafat.munasabati.compat.UiFeedback')
-          # Add language helpers after repo helper.
-          marker='private fun repo(context: Context) = (context.applicationContext as MunasabatiApp).repository'
-          helper=r'''private fun repo(context: Context) = (context.applicationContext as MunasabatiApp).repository
-private fun appLanguage(context:Context):String{
-    val v=runCatching{context.getSharedPreferences("munasabati_settings",Context.MODE_PRIVATE).all["language"]}.getOrNull()?.toString()?.lowercase(Locale.ROOT)
-    return if(v=="en"||v=="english") "en" else "ar"
-}
-private fun setAppLanguage(context:Context,code:String){context.getSharedPreferences("munasabati_settings",Context.MODE_PRIVATE).edit().putString("language",code).apply()}
-'''
-          if marker in s: s=s.replace(marker,helper)
-
-          # Top title/tagline localized.
-          s=s.replace('Text("مناسباتي", fontWeight = FontWeight.Bold); Text("لا تتذكر الموعد فقط، تذكّر الشخص واللحظة.", fontSize = 11.sp)','Text(if(appLanguage(LocalContext.current)=="en") "Munasabati" else "مناسباتي", fontWeight = FontWeight.Bold); Text(if(appLanguage(LocalContext.current)=="en") "Remember the person and the moment, not only the date." else "لا تتذكر الموعد فقط، تذكّر الشخص واللحظة.", fontSize = 11.sp)')
-
-          # Bottom bar localized and audible.
-          start=s.index('@Composable private fun BottomBar')
-          end=s.index('\n@Composable fun SmartCenterScreen',start)
-          bottom=r'''@Composable private fun BottomBar(nav: NavHostController) {
-    val context=LocalContext.current;val en=appLanguage(context)=="en"
-    NavigationBar {
-        val items=listOf(
-            Triple("center",Icons.Default.Home,if(en)"Home" else "المركز"),
-            Triple("calendar",Icons.Default.DateRange,if(en)"Calendar" else "التقويم"),
-            Triple("people",Icons.Default.People,if(en)"People" else "الأشخاص"),
-            Triple("memories",Icons.Default.Favorite,if(en)"Memories" else "الذكريات"),
-            Triple("more",Icons.Default.MoreHoriz,if(en)"More" else "المزيد")
-        )
-        items.forEach { (route,icon,label) -> NavigationBarItem(selected=nav.currentDestination?.route==route,onClick={UiFeedback.click(context);nav.navigate(route){launchSingleTop=true}},icon={Icon(icon,label)},label={Text(label)}) }
-    }
-}
-'''
-          s=s[:start]+bottom+s[end:]
-
-          # EventCard deletion: keep event hidden after confirmed move to trash.
-          sig='@Composable private fun EventCard(e: EventModel, context: Context) {'
-          s=s.replace(sig,sig+'\n    var hidden by remember(e.id){mutableStateOf(false)};var confirmDelete by remember(e.id){mutableStateOf(false)};if(hidden)return')
-          old='item { AssistChip(onClick={ com.rafat.munasabati.compat.TrashManager(context,repo(context)).moveToTrash(e) },label={Text("السلة")},leadingIcon={Icon(Icons.Default.Delete,null)}) }'
-          new='item { AssistChip(onClick={UiFeedback.click(context);confirmDelete=true},label={Text(if(appLanguage(context)=="en") "Delete" else "حذف")},leadingIcon={Icon(Icons.Default.Delete,null)}) }'
-          if old not in s: raise SystemExit('delete chip marker missing')
-          s=s.replace(old,new)
-          # Insert dialog after LazyRow inside EventCard, immediately before card column closes by anchoring attended chip row ending.
-          anchor='''                item { AssistChip(onClick = { val r=repo(context); r.upsertEvent(e.copy(attended=true,status=EventStatus.DONE,updatedAt=System.currentTimeMillis())); e.personId?.let{r.recordInteraction(it,e.id,"attended")} }, label={Text("حضرت")}, leadingIcon={Icon(Icons.Default.Check,null)}) }\n            }\n'''
-          dialog='''                item { AssistChip(onClick = { UiFeedback.success(context); val r=repo(context); r.upsertEvent(e.copy(attended=true,status=EventStatus.DONE,updatedAt=System.currentTimeMillis())); e.personId?.let{r.recordInteraction(it,e.id,"attended")} }, label={Text(if(appLanguage(context)=="en") "Attended" else "حضرت")}, leadingIcon={Icon(Icons.Default.Check,null)}) }\n            }\n            if(confirmDelete) AlertDialog(onDismissRequest={confirmDelete=false},title={Text(if(appLanguage(context)=="en") "Delete event?" else "حذف المناسبة؟")},text={Text(if(appLanguage(context)=="en") "The event will be moved to Trash and can be restored later." else "سيتم نقل المناسبة إلى سلة المحذوفات ويمكن استعادتها لاحقًا.")},confirmButton={TextButton(onClick={runCatching{com.rafat.munasabati.compat.TrashManager(context,repo(context)).moveToTrash(e)}.onSuccess{UiFeedback.delete(context);hidden=true;android.widget.Toast.makeText(context,if(appLanguage(context)=="en") "Moved to Trash" else "تم نقل المناسبة إلى السلة",android.widget.Toast.LENGTH_SHORT).show()};confirmDelete=false}){Text(if(appLanguage(context)=="en") "Delete" else "حذف")}},dismissButton={TextButton(onClick={confirmDelete=false}){Text(if(appLanguage(context)=="en") "Cancel" else "إلغاء")}})\n'''
-          if anchor not in s: raise SystemExit('event dialog anchor missing')
-          s=s.replace(anchor,dialog)
-
-          # Success sound after saving.
-          s=s.replace('ReminderScheduler(context).schedule(e); saved=true','ReminderScheduler(context).schedule(e); UiFeedback.success(context); saved=true')
-
-          # Replace More screen with restored sound, language and designer rights.
-          m=re.search(r'@Composable fun MoreScreen\(nav:NavHostController\)\{.*?\}\}\}\s*$',s,re.S)
-          if not m: raise SystemExit('MoreScreen marker missing')
-          more=r'''@Composable fun MoreScreen(nav:NavHostController){
-    val context=LocalContext.current;var lang by remember{mutableStateOf(appLanguage(context))};var sound by remember{mutableStateOf(UiFeedback.soundEnabled(context))};val en=lang=="en"
-    LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-        item{ListItem(headlineContent={Text(if(en)"Dashboard & statistics" else "Dashboard والإحصائيات")},leadingContent={Icon(Icons.Default.BarChart,null)},modifier=Modifier.clickable{UiFeedback.click(context);nav.navigate("stats")})}
-        item{ListItem(headlineContent={Text(if(en)"Tools & full features" else "الأدوات والمزايا الكاملة")},supportingContent={Text(if(en)"Backup • Sync • Ahl al-Bayt • Trash • Templates • Privacy" else "النسخ الاحتياطي • المزامنة • أهل البيت • السلة • القوالب • الخصوصية")},leadingContent={Icon(Icons.Default.Apps,null)},modifier=Modifier.clickable{UiFeedback.click(context);nav.navigate("legacy")})}
-        item{Card{Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-            Text(if(en)"Language" else "اللغة",fontWeight=FontWeight.Bold,fontSize=19.sp)
-            Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FilterChip(selected=lang=="ar",onClick={setAppLanguage(context,"ar");lang="ar";UiFeedback.click(context);(context as? android.app.Activity)?.recreate()},label={Text("العربية")});FilterChip(selected=lang=="en",onClick={setAppLanguage(context,"en");lang="en";UiFeedback.click(context);(context as? android.app.Activity)?.recreate()},label={Text("English")})}
-        }}}
-        item{Card{Column(Modifier.fillMaxWidth().padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
-            Row(verticalAlignment=Alignment.CenterVertically){Column(Modifier.weight(1f)){Text(if(en)"Interface sounds" else "أصوات الواجهة",fontWeight=FontWeight.Bold);Text(if(en)"Sound and light haptic feedback" else "صوت ولمس خفيف عند التفاعل",fontSize=12.sp,color=Color.Gray)};Switch(checked=sound,onCheckedChange={sound=it;UiFeedback.setSoundEnabled(context,it);if(it)UiFeedback.preview(context)})}
-            OutlinedButton(onClick={UiFeedback.preview(context)},enabled=sound){Icon(Icons.Default.VolumeUp,null);Spacer(Modifier.width(6.dp));Text(if(en)"Preview sound & haptic" else "تجربة الصوت واللمس")}
-        }}}
-        item{ListItem(headlineContent={Text("Diagnostics")},leadingContent={Icon(Icons.Default.HealthAndSafety,null)},modifier=Modifier.clickable{UiFeedback.click(context);nav.navigate("diagnostics")})}
-        item{Card(colors=CardDefaults.cardColors(containerColor=Mint)){Column(Modifier.fillMaxWidth().padding(16.dp),horizontalAlignment=Alignment.CenterHorizontally){Text(if(en)"Designed & developed by" else "تصميم وتطوير",fontWeight=FontWeight.Bold);Text("رأفت ناصر الناصر  •  Rafat Nasser Alnasser",fontWeight=FontWeight.Bold,textAlign=TextAlign.Center);Spacer(Modifier.height(6.dp));Text(if(en)"© 2026 Rafat Nasser Alnasser — All rights reserved." else "© 2026 رأفت ناصر الناصر — جميع حقوق البرنامج محفوظة.",fontSize=12.sp,textAlign=TextAlign.Center);Spacer(Modifier.height(8.dp));Text("${BuildConfig.CHANNEL.uppercase()} • v${BuildConfig.VERSION_NAME}",color=Color.Gray,fontSize=12.sp)}}}
-    }
-}
-'''
-          s=s[:m.start()]+more+'\n'
-          p.write_text(s)
-
-          # Basic feature-presence test source.
-          test=root/'app/src/test/java/com/rafat/munasabati/compat/RestoredFeaturesTest.kt'
-          test.parent.mkdir(parents=True,exist_ok=True)
-          test.write_text(r'''package com.rafat.munasabati.compat
-import org.junit.Assert.*
-import org.junit.Test
-class RestoredFeaturesTest{
- @Test fun versionFeaturesAreRepresented(){
-   val rightsAr="© 2026 رأفت ناصر الناصر — جميع حقوق البرنامج محفوظة."
-   val rightsEn="© 2026 Rafat Nasser Alnasser — All rights reserved."
-   assertTrue(rightsAr.contains("حقوق البرنامج"));assertTrue(rightsEn.contains("All rights reserved"))
- }
-}
-''')
-          PY
-          grep -q 'versionCode = 62' newsrc/app/build.gradle.kts
-          grep -q 'versionName = "5.0.2"' newsrc/app/build.gradle.kts
-          grep -q 'sound_enabled' newsrc/app/src/main/java/com/rafat/munasabati/compat/UiFeedback.kt
-          grep -q 'حذف المناسبة؟' newsrc/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
-          grep -q 'English' newsrc/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
-          grep -q 'جميع حقوق البرنامج محفوظة' newsrc/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
-
+          python /tmp/recovery.py
+          python .munasabati-v5-0-2/patch.py
+          python .munasabati-v5-0-2/compilefix.py
+          grep -q 'versionCode = 62' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.0.2"' v5src/app/build.gradle.kts
+          grep -q 'sound_enabled' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'haptic_enabled' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'language' v5src/app/src/main/java/com/rafat/munasabati/compat/AppPreferences.kt
+          grep -q 'حذف المناسبة' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q 'TrashManager' v5src/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+          grep -q '© 2026 رأفت ناصر الناصر' v5src/app/src/main/java/com/rafat/munasabati/ui/SettingsAboutScreen.kt
+          grep -q 'RingtoneManager' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
-      - name: Install Android SDK
+      - name: Install SDK
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
-
       - name: Unit tests
-        working-directory: newsrc
+        working-directory: v5src
         run: gradle :app:testStableDebugUnitTest --stacktrace --no-daemon
-
-      - name: Build v5.0.1 and v5.0.2 releases
+      - name: Build release
+        working-directory: v5src
+        run: gradle :app:assembleStableRelease --stacktrace --no-daemon
+      - name: Sign test release
         shell: bash
         run: |
           set -euo pipefail
-          (cd v5src && gradle :app:assembleStableRelease --stacktrace --no-daemon)
-          (cd newsrc && gradle :app:assembleStableRelease --stacktrace --no-daemon)
-
-      - name: Sign both with same CI certificate
-        shell: bash
-        run: |
-          set -euo pipefail
-          keytool -genkeypair -v -keystore /tmp/test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Munasabati Upgrade Test,O=Munasabati,C=SA"
-          OLD=$(find v5src/app/build/outputs/apk/stable/release -name '*.apk' | head -1)
-          NEW=$(find newsrc/app/build/outputs/apk/stable/release -name '*.apk' | head -1)
-          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$OLD" /tmp/v501-aligned.apk
-          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$NEW" /tmp/v502-aligned.apk
-          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v501.apk /tmp/v501-aligned.apk
-          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v502.apk /tmp/v502-aligned.apk
-          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v502.apk
-
+          APK=$(find v5src/app/build/outputs/apk/stable/release -name '*.apk' | head -1)
+          keytool -genkeypair -keystore /tmp/test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Munasabati 5.0.2 Runtime Test,O=Munasabati,C=SA"
+          "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "$APK" /tmp/v502-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out /tmp/v502-test.apk /tmp/v502-aligned.apk
+          java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose /tmp/v502-test.apk
       - name: Enable KVM
         shell: bash
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-
-      - name: Upgrade smoke test v5.0.1 to v5.0.2
+      - name: Android 15 runtime
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -296,31 +100,26 @@ class RestoredFeaturesTest{
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
           script: |
-            set -eu
-            PKG=com.rafat.munasabati
-            adb install -r /tmp/v501.apk
-            adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
-            sleep 4
-            adb shell am force-stop "$PKG"
+            adb install -r /tmp/v502-test.apk
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
             adb logcat -c
-            adb install -r /tmp/v502.apk
-            adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS || true
-            adb shell am start -W -n "$PKG/com.rafat.munasabati.MainActivity"
+            adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
             sleep 10
-            adb shell pidof "$PKG"
-            adb logcat -d -t 1600 > /tmp/v502.log
-            if grep -n -A80 -B20 -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v502.log; then exit 1; fi
-
-      - name: Collect unsigned v5.0.2 and signing tools
+            adb shell pidof com.rafat.munasabati
+            adb logcat -d -t 1800 > /tmp/log.txt
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/log.txt || true)"
+      - name: Collect release
         shell: bash
         run: |
+          set -euo pipefail
           mkdir -p final
-          cp newsrc/app/build/outputs/apk/stable/release/*.apk final/Munasabati-v5.0.2-unsigned.apk
+          cp v5src/app/build/outputs/apk/stable/release/*.apk final/Munasabati-v5.0.2-unsigned.apk
           cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" final/apksigner.jar
           cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" final/zipalign
+          sha256sum final/Munasabati-v5.0.2-unsigned.apk > final/SHA256.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Munasabati-v5.0.2-restored-features-passed
+          name: Munasabati-v5.0.2-final-passed
           path: final/*
           if-no-files-found: error
           retention-days: 14
