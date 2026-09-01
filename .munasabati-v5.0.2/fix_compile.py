@@ -13,17 +13,16 @@ s=s.replace('val sections = listOf(uiText("اليوم","Today") to b.today, uiTe
 '''val sections = listOf(sectionLabels502[0] to b.today, sectionLabels502[1] to b.week, sectionLabels502[2] to b.month, sectionLabels502[3] to b.overdue, sectionLabels502[4] to b.important)''')
 s=s.replace('EmptyMini(uiText("لا توجد مناسبات","No events"))','EmptyMini(emptyEventsText502)',1)
 
-# Ensure refresh state exists even when prior hotfix reformatted the original line.
+# Ensure refresh state exists even when the callback already contains the word refreshKey.
 smart_start=s.index('@Composable fun SmartCenterScreen')
 smart_end=s.index('@Composable private fun HeroCard',smart_start)
 smart=s[smart_start:smart_end]
-if 'refreshKey' not in smart:
-    smart=smart.replace('var buckets by remember { mutableStateOf<SmartCenterBuckets?>(null) }', 'var buckets by remember { mutableStateOf<SmartCenterBuckets?>(null) }\n    var refreshKey by remember { mutableIntStateOf(0) }')
-    smart=smart.replace('LaunchedEffect(Unit) { buckets = withContext(Dispatchers.IO) { repo(context).smartBuckets() } }','LaunchedEffect(refreshKey) { buckets = withContext(Dispatchers.IO) { repo(context).smartBuckets() } }')
-    s=s[:smart_start]+smart+s[smart_end:]
-elif 'LaunchedEffect(Unit) { buckets' in smart:
-    smart=smart.replace('LaunchedEffect(Unit) { buckets = withContext(Dispatchers.IO) { repo(context).smartBuckets() } }','LaunchedEffect(refreshKey) { buckets = withContext(Dispatchers.IO) { repo(context).smartBuckets() } }')
-    s=s[:smart_start]+smart+s[smart_end:]
+if 'var refreshKey by remember' not in smart:
+    marker='var buckets by remember { mutableStateOf<SmartCenterBuckets?>(null) }'
+    if marker not in smart: raise SystemExit('SmartCenter buckets state marker missing')
+    smart=smart.replace(marker, marker+'\n    var refreshKey by remember { mutableIntStateOf(0) }',1)
+smart=smart.replace('LaunchedEffect(Unit) { buckets = withContext(Dispatchers.IO) { repo(context).smartBuckets() } }','LaunchedEffect(refreshKey) { buckets = withContext(Dispatchers.IO) { repo(context).smartBuckets() } }')
+s=s[:smart_start]+smart+s[smart_end:]
 
 # clickable callbacks are not composable: capture context before creating the callbacks.
 more='@Composable fun MoreScreen(nav:NavHostController){'
