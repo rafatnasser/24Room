@@ -1,0 +1,148 @@
+name: Munasabati v5.2.6 Sync Crash Fix
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.github/workflows/munasabati-v5.2.6-sync-crash-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-test-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore exact v5.2.5 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502-brand/source.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/v502.tgz
+          mkdir -p v5src
+          tar -xzf /tmp/v502.tgz -C v5src
+          python .munasabati-v5.0.3-final/apply_userfix503.py v5src
+          base64 --decode .munasabati-v5.0.4/v504.patch.gz.b64 | gunzip > /tmp/v504.patch
+          patch -p1 -d v5src < /tmp/v504.patch
+          cat .munasabati-v5.1.0/parts/part* > /tmp/v510.patch.gz.b64
+          base64 --decode /tmp/v510.patch.gz.b64 | gunzip > /tmp/v510.patch
+          patch -p1 -d v5src < /tmp/v510.patch
+          python .munasabati-v5.2.0/apply_v520.py v5src .munasabati-v5.2.0
+          python .munasabati-v5.2.1/apply_v521.py v5src
+          python .munasabati-v5.2.2/apply_v522.py v5src .munasabati-v5.2.2
+          python .munasabati-v5.2.3/apply_v523.py v5src .munasabati-v5.2.3
+          python .munasabati-v5.2.4/apply_v524.py v5src .munasabati-v5.2.4
+          python .munasabati-v5.2.5/apply_v525.py v5src .munasabati-v5.2.5
+          grep -q 'versionCode = 85' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.2.5"' v5src/app/build.gradle.kts
+
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '9.3.1' }
+
+      - name: Build v5.2.5 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p v5src :app:assembleStableRelease --stacktrace --no-daemon
+          cp "$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)" /tmp/v525-unsigned.apk
+
+      - name: Apply v5.2.6 fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python .munasabati-v5.2.6/apply_v526.py v5src .munasabati-v5.2.6
+          grep -q 'versionCode = 86' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.2.6"' v5src/app/build.gradle.kts
+          grep -q 'withContext(Dispatchers.IO)' v5src/app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt
+          grep -q 'Calendar sync failed' v5src/app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt
+          grep -q 'rememberImportedBatch' v5src/app/src/main/java/com/rafat/munasabati/compat/CalendarSync.kt
+          grep -q 'existingSnapshot=repo.allEvents()' v5src/app/src/main/java/com/rafat/munasabati/compat/CalendarSync.kt
+          grep -q 'System.currentTimeMillis()-30L\*86_400_000' v5src/app/src/main/java/com/rafat/munasabati/compat/CalendarSync.kt
+          test -f v5src/app/src/androidTest/java/com/rafat/munasabati/compat/CalendarSyncSmokeTest.kt
+
+      - name: Unit tests and v5.2.6 builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p v5src :app:testStableDebugUnitTest --stacktrace --no-daemon
+          gradle -p v5src :app:assembleStableDebug :app:assembleStableRelease :app:assembleStableDebugAndroidTest --stacktrace --no-daemon
+          cp "$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)" /tmp/v526-unsigned.apk
+
+      - name: Sign upgrade pair with one test certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore /tmp/test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Munasabati 526 Test,O=Munasabati,C=SA"
+          for v in 525 526; do
+            "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "/tmp/v${v}-unsigned.apk" "/tmp/v${v}-aligned.apk"
+            java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out "/tmp/v${v}.apk" "/tmp/v${v}-aligned.apk"
+            java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose "/tmp/v${v}.apk"
+          done
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Android 15 provider sync test and data-preserving upgrade
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -e
+            gradle -p v5src :app:connectedStableDebugAndroidTest --stacktrace --no-daemon
+            adb uninstall com.rafat.munasabati || true
+            adb install /tmp/v525.apk
+            adb root || true
+            adb wait-for-device
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
+            adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
+            sleep 8
+            adb shell mkdir -p /data/user/0/com.rafat.munasabati/files
+            adb shell 'echo keep-v526 > /data/user/0/com.rafat.munasabati/files/v526-upgrade-sentinel.txt'
+            adb logcat -c || true
+            adb install -r /tmp/v526.apk
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
+            adb shell am force-stop com.rafat.munasabati
+            adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
+            sleep 12
+            adb shell pidof com.rafat.munasabati
+            adb shell cat /data/user/0/com.rafat.munasabati/files/v526-upgrade-sentinel.txt | grep -q keep-v526
+            adb shell dumpsys package com.rafat.munasabati | grep -q 'versionCode=86'
+            adb logcat -d > /tmp/v526.log 2>/tmp/v526-logcat.err || true
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v526.log || true)"
+            echo V526_ANDROID_PROVIDER_SYNC_AND_UPGRADE_PASS
+
+      - name: Package validated release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          cp /tmp/v526-unsigned.apk final/Munasabati-v5.2.6-FINAL-unsigned.apk
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" final/apksigner.jar
+          cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" final/zipalign
+          sha256sum final/Munasabati-v5.2.6-FINAL-unsigned.apk > final/unsigned-sha256.txt
+          printf 'version=5.2.6\nversionCode=86\nsync-runs-off-main-thread=PASS\nsync-exceptions-contained=PASS\nprovider-smoke-test=PASS\nregistry-batch-write=PASS\nimport-snapshot-optimization=PASS\nunit-tests=PASS\nandroid-tests=PASS\nupgrade-5.2.5-to-5.2.6=PASS\n' > final/build-info.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.2.6-final-upgrade-passed
+          path: final/*
+          if-no-files-found: error
+          retention-days: 7
