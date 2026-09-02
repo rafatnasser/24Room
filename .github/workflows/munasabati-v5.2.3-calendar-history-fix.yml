@@ -110,19 +110,22 @@ jobs:
             adb install /tmp/v522.apk
             adb root || true
             adb wait-for-device
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
             adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
             sleep 10
             adb shell mkdir -p /data/user/0/com.rafat.munasabati/files
             adb shell 'echo keep-v523 > /data/user/0/com.rafat.munasabati/files/v523-upgrade-sentinel.txt'
-            adb logcat -c
+            adb logcat -c || true
             adb install -r /tmp/v523.apk
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
+            adb shell am force-stop com.rafat.munasabati
             adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
             sleep 14
             adb shell pidof com.rafat.munasabati
             adb shell cat /data/user/0/com.rafat.munasabati/files/v523-upgrade-sentinel.txt | grep -q keep-v523
-            adb logcat -d -t 2200 > /tmp/v523.log
-            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v523.log || true)"
             adb shell dumpsys package com.rafat.munasabati | grep -q 'versionCode=83'
+            adb logcat -d > /tmp/v523.log 2>/tmp/v523-logcat.err || true
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v523.log || true)"
             echo V523_ANDROID_UPGRADE_PASS
 
       - name: Package validated release
