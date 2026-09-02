@@ -6,8 +6,8 @@ import android.content.ContentValues
 import android.content.Context
 import android.provider.CalendarContract
 import androidx.test.core.app.ApplicationProvider
-import androidx.test.ext.junit.rules.GrantPermissionRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.rafat.munasabati.MunasabatiApp
 import com.rafat.munasabati.model.EventCategory
 import com.rafat.munasabati.model.EventModel
@@ -15,19 +15,12 @@ import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.TimeZone
 
 @RunWith(AndroidJUnit4::class)
 class CalendarSyncRegressionTest {
-    @get:Rule
-    val calendarPermissionRule: GrantPermissionRule = GrantPermissionRule.grant(
-        Manifest.permission.READ_CALENDAR,
-        Manifest.permission.WRITE_CALENDAR
-    )
-
     private lateinit var context: Context
     private var calendarId: Long? = null
     private var providerEventId: Long? = null
@@ -36,6 +29,10 @@ class CalendarSyncRegressionTest {
     @Before
     fun setup() {
         context = ApplicationProvider.getApplicationContext()
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val packageName = instrumentation.targetContext.packageName
+        instrumentation.uiAutomation.grantRuntimePermission(packageName, Manifest.permission.READ_CALENDAR)
+        instrumentation.uiAutomation.grantRuntimePermission(packageName, Manifest.permission.WRITE_CALENDAR)
     }
 
     @After
