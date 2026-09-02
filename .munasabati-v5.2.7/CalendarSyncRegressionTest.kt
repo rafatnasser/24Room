@@ -73,7 +73,7 @@ class CalendarSyncRegressionTest {
             put(CalendarContract.Events.CALENDAR_ID, calId)
             put(CalendarContract.Events.TITLE, "Munasabati recurring sync v527")
             put(CalendarContract.Events.DTSTART, start)
-            put(CalendarContract.Events.DTEND, start + 30 * 60_000L)
+            put(CalendarContract.Events.DURATION, "PT30M")
             put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
             put(CalendarContract.Events.RRULE, "FREQ=DAILY;COUNT=3")
         }
