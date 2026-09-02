@@ -1,11 +1,13 @@
 package com.rafat.munasabati.compat
 
+import android.Manifest
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.provider.CalendarContract
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.rafat.munasabati.MunasabatiApp
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -25,6 +27,9 @@ class CalendarSyncSmokeTest {
     @Before
     fun setup() {
         context = ApplicationProvider.getApplicationContext()
+        val ui = InstrumentationRegistry.getInstrumentation().uiAutomation
+        ui.grantRuntimePermission(context.packageName, Manifest.permission.READ_CALENDAR)
+        ui.grantRuntimePermission(context.packageName, Manifest.permission.WRITE_CALENDAR)
     }
 
     @After
