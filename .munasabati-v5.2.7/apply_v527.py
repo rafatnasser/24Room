@@ -7,7 +7,9 @@ build = root / 'app/build.gradle.kts'
 ui = root / 'app/src/main/java/com/rafat/munasabati/ui/V52Experience.kt'
 sync_file = root / 'app/src/main/java/com/rafat/munasabati/compat/CalendarSync.kt'
 compat_dir = root / 'app/src/main/java/com/rafat/munasabati/compat'
+migration_dir = root / 'app/src/main/java/com/rafat/munasabati/migration'
 android_test_dir = root / 'app/src/androidTest/java/com/rafat/munasabati/compat'
+migration_test_dir = root / 'app/src/androidTest/java/com/rafat/munasabati/migration'
 
 # Version bump.
 s = build.read_text(encoding='utf-8')
@@ -20,12 +22,16 @@ build.write_text(s, encoding='utf-8')
 # Replace the calendar bridge with the instance-accurate/history-safe implementation.
 sync_file.write_text((assets / 'CalendarSync.kt').read_text(encoding='utf-8'), encoding='utf-8')
 
-# Install unified main-calendar projection and Android regression tests.
+# Install unified main-calendar projection, local-history recovery, and Android regression tests.
 compat_dir.mkdir(parents=True, exist_ok=True)
 (compat_dir / 'UnifiedCalendarProjection.kt').write_text((assets / 'UnifiedCalendarProjection.kt').read_text(encoding='utf-8'), encoding='utf-8')
+migration_dir.mkdir(parents=True, exist_ok=True)
+(migration_dir / 'LegacyPastRecovery.kt').write_text((assets / 'LegacyPastRecovery.kt').read_text(encoding='utf-8'), encoding='utf-8')
 android_test_dir.mkdir(parents=True, exist_ok=True)
 (android_test_dir / 'UnifiedCalendarProjectionTest.kt').write_text((assets / 'UnifiedCalendarProjectionTest.kt').read_text(encoding='utf-8'), encoding='utf-8')
 (android_test_dir / 'CalendarSyncRegressionTest.kt').write_text((assets / 'CalendarSyncRegressionTest.kt').read_text(encoding='utf-8'), encoding='utf-8')
+migration_test_dir.mkdir(parents=True, exist_ok=True)
+(migration_test_dir / 'LegacyPastRecoveryTest.kt').write_text((assets / 'LegacyPastRecoveryTest.kt').read_text(encoding='utf-8'), encoding='utf-8')
 
 # Main UI: protect true local history and merge Ahl al-Bayt occasions into all calendar modes.
 s = ui.read_text(encoding='utf-8')
@@ -34,6 +40,23 @@ if 'import com.rafat.munasabati.compat.UnifiedCalendarProjection\n' not in s:
     if anchor not in s:
         raise SystemExit('CalendarSyncManager import anchor missing')
     s = s.replace(anchor, anchor + 'import com.rafat.munasabati.compat.UnifiedCalendarProjection\n', 1)
+if 'import com.rafat.munasabati.migration.LegacyPastRecovery\n' not in s:
+    anchor = 'import com.rafat.munasabati.model.EventStatus\n'
+    if anchor not in s:
+        raise SystemExit('EventStatus import anchor missing')
+    s = s.replace(anchor, anchor + 'import com.rafat.munasabati.migration.LegacyPastRecovery\n', 1)
+
+# Recover only preserved app-local history before calendar cleanup is allowed to run.
+old = '''            val repo = v52Repo(context)
+            runCatching { CalendarSyncManager(context, repo).cleanupExpiredCalendarEvents() }
+            allEvents = repo.allEvents()'''
+new = '''            val repo = v52Repo(context)
+            runCatching { LegacyPastRecovery.recoverMissingLocalPastEvents(context, repo) }
+            runCatching { CalendarSyncManager(context, repo).cleanupExpiredCalendarEvents() }
+            allEvents = repo.allEvents()'''
+if old not in s:
+    raise SystemExit('dashboard recovery anchor missing')
+s = s.replace(old, new, 1)
 
 old = '    val previousAll = active.filter { !v522IsImportedCalendarEvent(it) && it.startEpochMillis < System.currentTimeMillis() }.sortedByDescending { it.startEpochMillis }'
 new = '    val previousAll = active.filter { !v522IsImportedCalendarEvent(it) && it.endEpochMillis <= System.currentTimeMillis() }.sortedByDescending { it.startEpochMillis }'
