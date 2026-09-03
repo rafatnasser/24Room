@@ -18,40 +18,60 @@ data class CalendarDisconnectResult(val importedRemoved:Int,val localUnlinked:In
     val total:Int get() = importedRemoved + localUnlinked
 }
 
+/**
+ * v5.3 calendar architecture.
+ *
+ * External Google/Outlook/device events are provider-backed live data. They are not
+ * persisted into Munasabati's Room event table. This creates a hard data boundary:
+ * local Munasabati events can become Previous Events; external calendar events never can.
+ */
 class CalendarSyncManager(private val context:Context,private val repo:EventRepository){
     private fun canRead()=ContextCompat.checkSelfPermission(context,Manifest.permission.READ_CALENDAR)==PackageManager.PERMISSION_GRANTED
     private fun canWrite()=ContextCompat.checkSelfPermission(context,Manifest.permission.WRITE_CALENDAR)==PackageManager.PERMISSION_GRANTED
 
+    // v5.2.x import registry is read only for migration/proven imported-row cleanup.
     private val importRegistry by lazy { context.getSharedPreferences("munasabati_calendar_import_registry_v1", Context.MODE_PRIVATE) }
     private fun registryKey(calendarId:Long)="calendar_$calendarId"
-    private fun trackedTokens(calendarId:Long):MutableSet<String> = runCatching {
-        importRegistry.getStringSet(registryKey(calendarId), emptySet())?.toMutableSet() ?: mutableSetOf()
-    }.getOrElse {
-        importRegistry.edit().remove(registryKey(calendarId)).apply()
-        mutableSetOf()
-    }
-    private fun tokenParts(token:String):Triple<Long,String,Long>?{
-        val p=token.split('|')
-        if(p.size<3) return null
-        val providerId=p[0].toLongOrNull()?:return null
-        val appId=p[1].takeIf{it.isNotBlank()}?:return null
-        val start=p[2].toLongOrNull()?:return null
-        return Triple(providerId,appId,start)
-    }
-    private fun trackedImportedIds(calendarId:Long):Set<String> = trackedTokens(calendarId).mapNotNull{tokenParts(it)?.second}.toSet()
+    private fun trackedTokens(calendarId:Long):Set<String> = runCatching {
+        importRegistry.getStringSet(registryKey(calendarId), emptySet())?.toSet() ?: emptySet()
+    }.getOrDefault(emptySet())
+    private fun tokenAppId(token:String):String? = token.split('|').getOrNull(1)?.takeIf{it.isNotBlank()}
+    private fun trackedImportedIds(calendarId:Long):Set<String> = trackedTokens(calendarId).mapNotNull(::tokenAppId).toSet()
     private fun allTrackedImportedIds():Set<String> = importRegistry.all.keys
         .filter{it.startsWith("calendar_")}
         .flatMap{key -> runCatching { importRegistry.getStringSet(key, emptySet()) ?: emptySet() }.getOrDefault(emptySet()) }
-        .mapNotNull{tokenParts(it)?.second}
+        .mapNotNull(::tokenAppId)
         .toSet()
-    private fun trackedByInstance(calendarId:Long):Map<Pair<Long,Long>,String> = trackedTokens(calendarId).mapNotNull{tokenParts(it)}
-        .associate{ (providerId,appId,start) -> (providerId to start) to appId }
-    private fun writeTrackedCalendar(calendarId:Long,entries:Collection<Triple<Long,String,Long>>){
-        if(entries.isEmpty()) importRegistry.edit().remove(registryKey(calendarId)).apply()
-        else importRegistry.edit().putStringSet(registryKey(calendarId),entries.map{"${it.first}|${it.second}|${it.third}"}.toSet()).apply()
+
+    // v5.3 stores only which provider calendars are connected, not copies of their events.
+    private val connectionPrefs by lazy { context.getSharedPreferences("munasabati_calendar_connections_v2", Context.MODE_PRIVATE) }
+    private fun storedConnectedIds():Set<Long> = runCatching {
+        connectionPrefs.getStringSet("calendar_ids", emptySet())?.mapNotNull{it.toLongOrNull()}?.toSet() ?: emptySet()
+    }.getOrDefault(emptySet())
+    private fun saveConnectedIds(ids:Set<Long>){
+        connectionPrefs.edit().putStringSet("calendar_ids",ids.map{it.toString()}.toSet()).apply()
     }
-    private fun clearTrackedCalendar(calendarId:Long){ importRegistry.edit().remove(registryKey(calendarId)).apply() }
-    private fun isTrackedImported(event:EventModel):Boolean = allTrackedImportedIds().contains(event.id)
+
+    private fun migrateLegacyConnections(){
+        val registryIds=importRegistry.all.keys
+            .filter{it.startsWith("calendar_")}
+            .mapNotNull{it.removePrefix("calendar_").toLongOrNull()}
+            .toSet()
+        val rowIds=repo.allEvents().mapNotNull{event->
+            val provenImported=CalendarEventOrigin.isImportedFingerprint(event.calendarFingerprint) || allTrackedImportedIds().contains(event.id)
+            event.calendarId?.takeIf{provenImported}
+        }.toSet()
+        val merged=storedConnectedIds()+registryIds+rowIds
+        if(merged!=storedConnectedIds()) saveConnectedIds(merged)
+    }
+
+    fun connectedCalendarIds():Set<Long>{
+        migrateLegacyConnections()
+        return storedConnectedIds()
+    }
+    fun isCalendarConnected(calendarId:Long):Boolean=connectedCalendarIds().contains(calendarId)
+    private fun markConnected(calendarId:Long){ saveConnectedIds(storedConnectedIds()+calendarId) }
+    private fun markDisconnected(calendarId:Long){ saveConnectedIds(storedConnectedIds()-calendarId) }
 
     fun calendars():List<SystemCalendar>{
         if(!canRead()) return emptyList()
@@ -66,7 +86,7 @@ class CalendarSyncManager(private val context:Context,private val repo:EventRepo
         return out
     }
 
-    private fun valuesFor(event:EventModel,calendarId:Long,withMarker:Boolean):ContentValues = ContentValues().apply{
+    private fun valuesFor(event:EventModel,calendarId:Long,withMarker:Boolean):ContentValues=ContentValues().apply{
         put(CalendarContract.Events.CALENDAR_ID,calendarId)
         put(CalendarContract.Events.TITLE,event.title)
         put(CalendarContract.Events.DESCRIPTION,event.notes)
@@ -80,28 +100,33 @@ class CalendarSyncManager(private val context:Context,private val repo:EventRepo
         }
     }
 
-    private fun writeProviderEvent(event:EventModel,calendarId:Long,withMarker:Boolean):Long?{
+    private fun writeProviderEvent(event:EventModel,calendarId:Long):Long?{
         fun write(values:ContentValues):Long?{
-            val existingId=event.calendarEventId
-            if(existingId!=null){
+            event.calendarEventId?.let{existingId->
                 val target=ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI,existingId)
-                val updated=context.contentResolver.update(target,values,null,null)
-                if(updated>0) return existingId
+                if(context.contentResolver.update(target,values,null,null)>0) return existingId
             }
             return context.contentResolver.insert(CalendarContract.Events.CONTENT_URI,values)?.lastPathSegment?.toLongOrNull()
         }
-        return runCatching { write(valuesFor(event,calendarId,withMarker)) }.getOrElse {
-            if(withMarker) runCatching { write(valuesFor(event,calendarId,false)) }.getOrNull() else null
+        return runCatching{write(valuesFor(event,calendarId,true))}.getOrElse{
+            // Some vendor CalendarProviders reject custom marker columns on writes.
+            runCatching{write(valuesFor(event,calendarId,false))}.getOrNull()
         }
     }
 
+    /** Push a Munasabati-local event to a writable provider calendar. */
     fun push(event:EventModel,calendarId:Long):Long?{
-        if(!canWrite()) return null
-        val imported=isImportedEvent(event)
-        val id=writeProviderEvent(event,calendarId,!imported) ?: return null
-        val origin=if(imported) event.calendarFingerprint else CalendarEventOrigin.localFingerprint(fingerprint(event))
-        repo.upsertEvent(event.copy(calendarId=calendarId,calendarEventId=id,calendarSync=true,calendarFingerprint=origin,updatedAt=System.currentTimeMillis()))
-        return id
+        if(!canWrite() || isImportedEvent(event)) return null
+        val providerId=writeProviderEvent(event,calendarId)?:return null
+        repo.upsertEvent(event.copy(
+            calendarId=calendarId,
+            calendarEventId=providerId,
+            calendarSync=true,
+            calendarFingerprint=event.calendarFingerprint.takeIf{it.startsWith("local:")}
+                ?:CalendarEventOrigin.localFingerprint(fingerprint(event)),
+            updatedAt=System.currentTimeMillis()
+        ))
+        return providerId
     }
 
     private fun instanceUri(from:Long,to:Long)=CalendarContract.Instances.CONTENT_URI.buildUpon().also{
@@ -109,7 +134,8 @@ class CalendarSyncManager(private val context:Context,private val repo:EventRepo
         ContentUris.appendId(it,to)
     }.build()
 
-    private fun markerLocalId(providerId:Long):String? = runCatching {
+    /** Read a durable Munasabati marker from a provider event when supported. */
+    private fun markerLocalId(providerId:Long):String?=runCatching{
         context.contentResolver.query(
             ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI,providerId),
             arrayOf(CalendarContract.Events.CUSTOM_APP_PACKAGE,CalendarContract.Events.CUSTOM_APP_URI),
@@ -118,32 +144,40 @@ class CalendarSyncManager(private val context:Context,private val repo:EventRepo
             if(!c.moveToFirst()) return@use null
             val pkg=c.getString(0).orEmpty()
             val uri=c.getString(1).orEmpty()
-            if(pkg==context.packageName && uri.startsWith("munasabati://event/")) uri.removePrefix("munasabati://event/").takeIf{it.isNotBlank()} else null
+            if(pkg==context.packageName && uri.startsWith("munasabati://event/"))
+                uri.removePrefix("munasabati://event/").takeIf{it.isNotBlank()}
+            else null
         }
     }.getOrNull()
 
-    fun importCalendar(calendarId:Long,from:Long=System.currentTimeMillis()-86_400_000L,to:Long=System.currentTimeMillis()+730L*86_400_000L):Int{
-        if(!canRead()) return 0
+    /**
+     * Live Instances query. Recurring provider events are expanded into their real
+     * occurrences; anything already ended is excluded immediately.
+     */
+    fun liveEventsForCalendar(
+        calendarId:Long,
+        from:Long=System.currentTimeMillis()-7L*86_400_000L,
+        to:Long=System.currentTimeMillis()+730L*86_400_000L
+    ):List<EventModel>{
+        if(!canRead()) return emptyList()
         val now=System.currentTimeMillis()
         val snapshot=repo.allEvents()
         val byId=snapshot.associateBy{it.id}
-        val trackedByInstance=trackedByInstance(calendarId)
-        val observedOrigins=mutableSetOf<String>()
-        val registryEntries=mutableListOf<Triple<Long,String,Long>>()
-        var count=0
+        val linkedProviderIds=snapshot.filter{it.calendarId==calendarId && !isImportedEvent(it)}.mapNotNull{it.calendarEventId}.toSet()
+        val out=mutableListOf<EventModel>()
 
         context.contentResolver.query(
             instanceUri(from,to),
             arrayOf(
                 CalendarContract.Instances.EVENT_ID,
-                CalendarContract.Events.TITLE,
-                CalendarContract.Events.DESCRIPTION,
-                CalendarContract.Events.EVENT_LOCATION,
+                CalendarContract.Instances.TITLE,
+                CalendarContract.Instances.DESCRIPTION,
+                CalendarContract.Instances.EVENT_LOCATION,
                 CalendarContract.Instances.BEGIN,
                 CalendarContract.Instances.END,
-                CalendarContract.Events.STATUS
+                CalendarContract.Instances.STATUS
             ),
-            "calendar_id=?",
+            "${CalendarContract.Instances.CALENDAR_ID}=?",
             arrayOf(calendarId.toString()),
             CalendarContract.Instances.BEGIN
         )?.use{c->while(c.moveToNext()){
@@ -155,124 +189,136 @@ class CalendarSyncManager(private val context:Context,private val repo:EventRepo
             val status=c.getInt(6)
             if(status==CalendarContract.Events.STATUS_CANCELED || end<=now) continue
 
-            val localLinked=snapshot.firstOrNull{it.calendarId==calendarId && it.calendarEventId==providerId && !isImportedEvent(it)}
-                ?: markerLocalId(providerId)?.let{byId[it]}
-            if(localLinked!=null){
-                if(localLinked.calendarId!=calendarId || localLinked.calendarEventId!=providerId || !localLinked.calendarSync){
-                    repo.upsertEvent(localLinked.copy(calendarId=calendarId,calendarEventId=providerId,calendarSync=true,
-                        calendarFingerprint=localLinked.calendarFingerprint.takeIf{it.startsWith("local:")}?:CalendarEventOrigin.localFingerprint(fingerprint(localLinked)),
-                        updatedAt=System.currentTimeMillis()))
+            // A provider row created from Munasabati must remain one local event, not
+            // return later as a second external copy after reconnecting.
+            val markerId=markerLocalId(providerId)
+            val markerLocal=markerId?.let{byId[it]}
+            if(providerId in linkedProviderIds || markerLocal!=null){
+                if(markerLocal!=null && (markerLocal.calendarId!=calendarId || markerLocal.calendarEventId!=providerId || !markerLocal.calendarSync)){
+                    repo.upsertEvent(markerLocal.copy(
+                        calendarId=calendarId,
+                        calendarEventId=providerId,
+                        calendarSync=true,
+                        calendarFingerprint=markerLocal.calendarFingerprint.takeIf{it.startsWith("local:")}
+                            ?:CalendarEventOrigin.localFingerprint(fingerprint(markerLocal)),
+                        updatedAt=System.currentTimeMillis()
+                    ))
                 }
                 continue
             }
 
-            val origin=CalendarEventOrigin.importedFingerprint(calendarId,providerId,start)
-            observedOrigins+=origin
-            val trackedId=trackedByInstance[providerId to start]
-            val existing=snapshot.firstOrNull{it.calendarFingerprint==origin}
-                ?: trackedId?.let{byId[it]}
-                ?: snapshot.firstOrNull{it.calendarId==calendarId && it.calendarEventId==providerId && it.startEpochMillis==start && isImportedEvent(it)}
-            val base=existing?:EventModel(title=title,startEpochMillis=start,endEpochMillis=end,category=EventCategory.OTHER)
-            val importedEvent=base.copy(
+            out+=EventModel(
+                id="external:$calendarId:$providerId:$start",
                 title=title,
                 notes=c.getString(2)?:"",
                 locationName=c.getString(3)?:"",
                 startEpochMillis=start,
                 endEpochMillis=end,
+                category=EventCategory.OTHER,
                 calendarId=calendarId,
                 calendarEventId=providerId,
                 calendarSync=true,
-                calendarFingerprint=origin,
-                updatedAt=System.currentTimeMillis()
+                calendarFingerprint=CalendarEventOrigin.importedFingerprint(calendarId,providerId,start)
             )
-            repo.upsertEvent(importedEvent)
-            registryEntries+=Triple(providerId,importedEvent.id,start)
-            count++
         }}
+        return out.distinctBy{it.id}.sortedBy{it.startEpochMillis}
+    }
 
-        val observedIds=registryEntries.map{it.second}.toSet()
-        val trackedIds=trackedImportedIds(calendarId)
-        repo.allEvents().filter{event->
-            event.endEpochMillis>now && event.startEpochMillis<=to &&
-                (event.calendarId==calendarId || trackedIds.contains(event.id)) &&
-                isImportedEvent(event) && !observedIds.contains(event.id) &&
-                (event.calendarFingerprint.startsWith("imported:$calendarId:") || trackedIds.contains(event.id))
-        }.forEach{repo.deleteEvent(it.id)}
-        writeTrackedCalendar(calendarId,registryEntries)
-        return count
+    fun liveConnectedEvents(
+        from:Long=System.currentTimeMillis()-7L*86_400_000L,
+        to:Long=System.currentTimeMillis()+730L*86_400_000L
+    ):List<EventModel> = connectedCalendarIds()
+        .flatMap{id->runCatching{liveEventsForCalendar(id,from,to)}.getOrDefault(emptyList())}
+        .distinctBy{it.id}
+        .sortedBy{it.startEpochMillis}
+
+    /**
+     * Compatibility name kept for the existing UI. In v5.3 this connects/refreshes a
+     * live source and returns the number visible; it no longer imports copies into Room.
+     */
+    fun importCalendar(calendarId:Long,from:Long=System.currentTimeMillis()-7L*86_400_000L,to:Long=System.currentTimeMillis()+730L*86_400_000L):Int{
+        markConnected(calendarId)
+        purgePersistedImportedRows(calendarId)
+        return liveEventsForCalendar(calendarId,from,to).size
     }
 
     fun syncCalendar(calendarId:Long):CalendarSyncResult{
-        cleanupExpiredCalendarEvents()
-        val imported=importCalendar(calendarId)
+        markConnected(calendarId)
+        purgePersistedImportedRows(calendarId)
+        val visible=runCatching{liveEventsForCalendar(calendarId)}.getOrDefault(emptyList()).size
         var pushed=0
-        repo.allEvents().filter{it.calendarSync&&it.calendarId==calendarId&&!isImportedEvent(it)}.forEach{
-            runCatching { push(it,calendarId) }.getOrNull()?.let { pushed++ }
+        repo.allEvents().filter{it.calendarSync && it.calendarId==calendarId && !isImportedEvent(it)}.forEach{
+            runCatching{push(it,calendarId)}.getOrNull()?.let{pushed++}
         }
-        cleanupExpiredCalendarEvents()
-        return CalendarSyncResult(imported,pushed)
+        return CalendarSyncResult(visible,pushed)
     }
 
     fun syncMarked():Int{
-        var n=0
-        repo.allEvents().filter{it.calendarSync&&it.calendarId!=null&&!isImportedEvent(it)}.forEach{
-            runCatching { push(it,it.calendarId!!) }.getOrNull()?.let{n++}
+        var pushed=0
+        repo.allEvents().filter{it.calendarSync && it.calendarId!=null && !isImportedEvent(it)}.forEach{
+            runCatching{push(it,it.calendarId!!)}.getOrNull()?.let{pushed++}
         }
-        return n
+        return pushed
     }
 
-    fun linkedCount(calendarId:Long):Int{
-        val tracked=trackedImportedIds(calendarId)
-        return repo.allEvents().count{it.calendarId==calendarId || tracked.contains(it.id)}
+    /** Only Munasabati-local rows are counted as linked rows. */
+    fun linkedCount(calendarId:Long):Int=repo.allEvents().count{it.calendarId==calendarId && !isImportedEvent(it)}
+
+    /**
+     * Purge only rows that carry explicit imported identity or an old registry identity.
+     * There is deliberately no title/date/category heuristic in v5.3.
+     */
+    private fun purgePersistedImportedRows(calendarId:Long?=null):Int{
+        migrateLegacyConnections()
+        val tracked=if(calendarId==null) allTrackedImportedIds() else trackedImportedIds(calendarId)
+        var removed=0
+        repo.allEvents().filter{event->
+            val belongs=calendarId==null || event.calendarId==calendarId || tracked.contains(event.id)
+            belongs && (CalendarEventOrigin.isImportedFingerprint(event.calendarFingerprint) || tracked.contains(event.id))
+        }.forEach{event->if(repo.deleteEvent(event.id)>0)removed++}
+        if(calendarId==null) importRegistry.edit().clear().apply()
+        else importRegistry.edit().remove(registryKey(calendarId)).apply()
+        return removed
     }
+
+    /** Called by screens when entering v5.3 live mode. */
+    fun prepareLiveMode():Int{
+        migrateLegacyConnections()
+        return purgePersistedImportedRows(null)
+    }
+
+    /** Compatibility API: no local-history heuristic cleanup; only proven old imports. */
+    fun cleanupExpiredCalendarEvents(now:Long=System.currentTimeMillis()):Int=prepareLiveMode()
 
     fun disconnectCalendar(calendarId:Long):CalendarDisconnectResult{
-        val tracked=trackedImportedIds(calendarId)
-        val linked=repo.allEvents().filter{it.calendarId==calendarId || tracked.contains(it.id)}
-        var removed=0
+        migrateLegacyConnections()
+        var removed=purgePersistedImportedRows(calendarId)
         var unlinked=0
-        linked.forEach{event->
-            if(CalendarEventOrigin.isImportedFingerprint(event.calendarFingerprint) || tracked.contains(event.id)){
-                if(repo.deleteEvent(event.id)>0) removed++
-            }else{
-                val localOrigin=event.calendarFingerprint.takeIf{it.startsWith("local:")}
-                    ?:CalendarEventOrigin.localFingerprint(fingerprint(event))
-                repo.upsertEvent(event.copy(calendarId=null,calendarEventId=null,calendarSync=false,calendarFingerprint=localOrigin,updatedAt=System.currentTimeMillis()))
-                unlinked++
-            }
+        repo.allEvents().filter{it.calendarId==calendarId && !isImportedEvent(it)}.forEach{event->
+            repo.upsertEvent(event.copy(
+                calendarId=null,
+                calendarEventId=null,
+                calendarSync=false,
+                calendarFingerprint=event.calendarFingerprint.takeIf{it.startsWith("local:")}
+                    ?:CalendarEventOrigin.localFingerprint(fingerprint(event)),
+                updatedAt=System.currentTimeMillis()
+            ))
+            unlinked++
         }
-        clearTrackedCalendar(calendarId)
-        cleanupExpiredCalendarEvents()
+        markDisconnected(calendarId)
         return CalendarDisconnectResult(removed,unlinked)
     }
 
     fun isImportedEvent(event:EventModel):Boolean=
-        CalendarEventOrigin.isImportedFingerprint(event.calendarFingerprint) || isTrackedImported(event)
+        CalendarEventOrigin.isImportedFingerprint(event.calendarFingerprint) || allTrackedImportedIds().contains(event.id)
 
-    fun cleanupExpiredCalendarEvents(now:Long=System.currentTimeMillis()):Int{
-        val tracked=allTrackedImportedIds()
-        var removed=0
-        repo.allEvents().filter{event->
-            (CalendarEventOrigin.isImportedFingerprint(event.calendarFingerprint) || tracked.contains(event.id)) && event.endEpochMillis<=now
-        }.forEach{event-> if(repo.deleteEvent(event.id)>0) removed++ }
-        pruneRegistry()
-        return removed
-    }
-
-    private fun pruneRegistry(){
-        val existing=repo.allEvents().map{it.id}.toSet()
-        importRegistry.all.keys.filter{it.startsWith("calendar_")}.forEach{key->
-            val current=runCatching{importRegistry.getStringSet(key,emptySet())?:emptySet()}.getOrDefault(emptySet())
-            val kept=current.filter{tokenParts(it)?.second in existing}.toSet()
-            if(kept.isEmpty()) importRegistry.edit().remove(key).apply()
-            else if(kept!=current) importRegistry.edit().putStringSet(key,kept).apply()
-        }
-    }
-
+    /** Source-provider deletion is intentionally not used by disconnect/remove-from-app. */
     fun deleteLinked(event:EventModel):Boolean{
-        if(!event.calendarSync||event.calendarEventId==null)return true
-        if(!canWrite())return false
-        return runCatching{context.contentResolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI,event.calendarEventId),null,null)>=0}.getOrDefault(false)
+        if(!event.calendarSync || event.calendarEventId==null) return true
+        if(!canWrite()) return false
+        return runCatching{
+            context.contentResolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI,event.calendarEventId),null,null)>=0
+        }.getOrDefault(false)
     }
 
     private fun fingerprint(e:EventModel)="${e.title}|${e.startEpochMillis}|${e.endEpochMillis}|${e.locationName}|${e.notes}".hashCode().toString()
