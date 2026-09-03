@@ -22,13 +22,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p tools
+          mkdir -p tools/lib64
           cp "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" tools/apksigner.jar
           cp "$ANDROID_HOME/build-tools/36.0.0/zipalign" tools/zipalign
+          cp "$ANDROID_HOME/build-tools/36.0.0/lib64/libc++.so" tools/lib64/libc++.so
           chmod +x tools/zipalign
       - uses: actions/upload-artifact@v4
         with:
           name: Munasabati-v5.4-signing-tools
-          path: tools/*
+          path: tools/**
           if-no-files-found: error
           retention-days: 2
