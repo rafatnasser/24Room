@@ -1,0 +1,161 @@
+name: Munasabati v5.5 Final Quality
+
+on:
+  push:
+    branches: [ "munasabati-v5.5-build" ]
+    paths:
+      - '.munasabati-v5.5/**'
+      - '.github/workflows/munasabati-v5.5-final-quality.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  build-test-upgrade:
+    runs-on: ubuntu-latest
+    timeout-minutes: 110
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Reconstruct exact v5.4.0 baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502-brand/source.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/v502.tgz
+          mkdir -p v5src
+          tar -xzf /tmp/v502.tgz -C v5src
+          python .munasabati-v5.0.3-final/apply_userfix503.py v5src
+          base64 --decode .munasabati-v5.0.4/v504.patch.gz.b64 | gunzip > /tmp/v504.patch
+          patch -p1 -d v5src < /tmp/v504.patch
+          cat .munasabati-v5.1.0/parts/part* > /tmp/v510.patch.gz.b64
+          base64 --decode /tmp/v510.patch.gz.b64 | gunzip > /tmp/v510.patch
+          patch -p1 -d v5src < /tmp/v510.patch
+          python .munasabati-v5.2.0/apply_v520.py v5src .munasabati-v5.2.0
+          python .munasabati-v5.2.1/apply_v521.py v5src
+          python .munasabati-v5.2.2/apply_v522.py v5src .munasabati-v5.2.2
+          python .munasabati-v5.2.3/apply_v523.py v5src .munasabati-v5.2.3
+          python .munasabati-v5.2.4/apply_v524.py v5src .munasabati-v5.2.4
+          python .munasabati-v5.2.5/apply_v525.py v5src .munasabati-v5.2.5
+          python .munasabati-v5.2.6/apply_v526.py v5src .munasabati-v5.2.6
+          python .munasabati-v5.3.0/apply_v530.py v5src .munasabati-v5.3.0
+          cat .munasabati-v5.4/parts/part* > /tmp/v540.patch.gz.b64
+          base64 --decode /tmp/v540.patch.gz.b64 | gunzip > /tmp/v540.patch
+          patch -p1 -d v5src < /tmp/v540.patch
+          grep -q 'versionCode = 100' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.4.0"' v5src/app/build.gradle.kts
+
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '9.3.1' }
+
+      - name: Build v5.4 upgrade baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p v5src :app:assembleStableRelease --stacktrace --no-daemon
+          cp "$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)" /tmp/v540-unsigned.apk
+
+      - name: Apply v5.5.0 quality improvements
+        shell: bash
+        run: |
+          set -euo pipefail
+          base64 --decode .munasabati-v5.5/v550.patch.gz.b64 | gunzip > /tmp/v550.patch
+          patch -p1 -d v5src < /tmp/v550.patch
+          grep -q 'versionCode = 110' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.5.0"' v5src/app/build.gradle.kts
+          grep -q 'PBKDF2WithHmacSHA256' v5src/app/src/main/java/com/rafat/munasabati/compat/PrivacyManager.kt
+          grep -q 'Lifecycle.Event.ON_STOP' v5src/app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt
+          grep -q 'FLAG_SECURE' v5src/app/src/main/java/com/rafat/munasabati/ui/LegacyScreens.kt
+          grep -q 'excludedSettingKeys' v5src/app/src/main/java/com/rafat/munasabati/compat/LegacyDataTools.kt
+          grep -q 'V55OnboardingScreen' v5src/app/src/main/java/com/rafat/munasabati/ui/V55Experience.kt
+          grep -q 'V55StatsScreen' v5src/app/src/main/java/com/rafat/munasabati/ui/V55Experience.kt
+          grep -q 'V55HealthScreen' v5src/app/src/main/java/com/rafat/munasabati/ui/V55Experience.kt
+          grep -q 'restored_attachments' v5src/app/src/main/res/xml/file_paths.xml
+          test -f v5src/app/src/androidTest/java/com/rafat/munasabati/V55QualityInstrumentedTest.kt
+
+      - name: Unit tests and APK builds
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p v5src :app:testStableDebugUnitTest --stacktrace --no-daemon
+          gradle -p v5src :app:assembleStableDebug :app:assembleStableRelease :app:assembleStableDebugAndroidTest --stacktrace --no-daemon
+          cp "$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)" /tmp/v550-unsigned.apk
+
+      - name: Sign v5.4/v5.5 upgrade pair with one test certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -keystore /tmp/test.jks -storepass testpass -keypass testpass -alias test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Munasabati 550 Upgrade Test,O=Munasabati,C=SA"
+          for v in 540 550; do
+            "$ANDROID_HOME/build-tools/36.0.0/zipalign" -f -p 4 "/tmp/v${v}-unsigned.apk" "/tmp/v${v}-aligned.apk"
+            java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" sign --ks /tmp/test.jks --ks-key-alias test --ks-pass pass:testpass --key-pass pass:testpass --out "/tmp/v${v}.apk" "/tmp/v${v}-aligned.apk"
+            java -jar "$ANDROID_HOME/build-tools/36.0.0/lib/apksigner.jar" verify --verbose "/tmp/v${v}.apk"
+          done
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Android 15 service tests and data-preserving upgrade
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -e
+            gradle -p v5src :app:connectedStableDebugAndroidTest --stacktrace --no-daemon
+            adb uninstall com.rafat.munasabati || true
+            adb install /tmp/v540.apk
+            adb root || true
+            adb wait-for-device
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant com.rafat.munasabati android.permission.READ_CALENDAR || true
+            adb shell pm grant com.rafat.munasabati android.permission.WRITE_CALENDAR || true
+            adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
+            sleep 8
+            adb shell mkdir -p /data/user/0/com.rafat.munasabati/files
+            adb shell 'echo keep-v550 > /data/user/0/com.rafat.munasabati/files/v550-upgrade-sentinel.txt'
+            adb logcat -c || true
+            adb install -r /tmp/v550.apk
+            adb shell pm grant com.rafat.munasabati android.permission.POST_NOTIFICATIONS || true
+            adb shell pm grant com.rafat.munasabati android.permission.READ_CALENDAR || true
+            adb shell pm grant com.rafat.munasabati android.permission.WRITE_CALENDAR || true
+            adb shell am force-stop com.rafat.munasabati
+            adb shell am start -W -n com.rafat.munasabati/com.rafat.munasabati.MainActivity
+            sleep 14
+            adb shell pidof com.rafat.munasabati
+            adb shell cat /data/user/0/com.rafat.munasabati/files/v550-upgrade-sentinel.txt | grep -q keep-v550
+            adb shell dumpsys package com.rafat.munasabati | grep -q 'versionCode=110'
+            adb logcat -d > /tmp/v550.log 2>/tmp/v550-logcat.err || true
+            test -z "$(grep -E 'FATAL EXCEPTION|Process: com.rafat.munasabati' /tmp/v550.log || true)"
+            echo V550_ALL_SERVICE_AND_UPGRADE_TESTS_PASS
+
+      - name: Package validated v5.5 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p final
+          cp /tmp/v550-unsigned.apk final/Munasabati-v5.5.0-FINAL-unsigned.apk
+          tar -czf final/Munasabati-v5.5.0-SOURCE.tgz -C v5src .
+          sha256sum final/Munasabati-v5.5.0-FINAL-unsigned.apk > final/unsigned-sha256.txt
+          printf 'version=5.5.0\nversionCode=110\npackage=com.rafat.munasabati\nonboarding=PASS\nstats=PASS\nnavigation-motion=PASS\nbackup-validation=PASS\nattachment-restore=PASS\nportable-backup-excludes-secure-notes=PASS\nportable-backup-excludes-pin-verifier=PASS\nhealth-center=PASS\nprivacy-pin-pbkdf2=PASS\nlegacy-pin-migration=PASS\nsecure-notes-keystore=PASS\napp-relock-lifecycle=PASS\nfileprovider-backup-path=PASS\nunit-tests=PASS\nandroid-instrumentation=PASS\ncalendar-integration-regression=PASS\nupgrade-5.4-to-5.5=PASS\nno-fatal-crash=PASS\n' > final/Munasabati-v5.5.0-VERIFY.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.5.0-final-quality-passed
+          path: final/*
+          if-no-files-found: error
+          retention-days: 7
