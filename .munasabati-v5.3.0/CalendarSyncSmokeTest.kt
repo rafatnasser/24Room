@@ -1,11 +1,13 @@
 package com.rafat.munasabati.compat
 
+import android.Manifest
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.provider.CalendarContract
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
 import com.rafat.munasabati.MunasabatiApp
 import com.rafat.munasabati.model.EventCategory
 import com.rafat.munasabati.model.EventModel
@@ -29,11 +31,16 @@ class CalendarSyncSmokeTest {
     private var calendarId: Long? = null
     private val providerEventIds = mutableListOf<Long>()
     private val localIds = mutableListOf<String>()
+    private var oldLegacyPayload: String? = null
 
     @Before
     fun setup() {
         context = ApplicationProvider.getApplicationContext()
         app = context.applicationContext as MunasabatiApp
+        val ui = InstrumentationRegistry.getInstrumentation().uiAutomation
+        ui.grantRuntimePermission(context.packageName, Manifest.permission.READ_CALENDAR)
+        ui.grantRuntimePermission(context.packageName, Manifest.permission.WRITE_CALENDAR)
+        oldLegacyPayload = context.getSharedPreferences("munasabati_events", Context.MODE_PRIVATE).getString("events", null)
     }
 
     @After
@@ -43,6 +50,7 @@ class CalendarSyncSmokeTest {
             runCatching { context.contentResolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id), null, null) }
         }
         calendarId?.let { id ->
+            runCatching { CalendarSyncManager(context, app.repository).disconnectCalendar(id) }
             val uri = CalendarContract.Calendars.CONTENT_URI.buildUpon()
                 .appendQueryParameter(CalendarContract.CALLER_IS_SYNCADAPTER, "true")
                 .appendQueryParameter(CalendarContract.Calendars.ACCOUNT_NAME, "munasabati-v530-test")
@@ -50,7 +58,12 @@ class CalendarSyncSmokeTest {
                 .build()
             runCatching { context.contentResolver.delete(ContentUris.withAppendedId(uri, id), null, null) }
         }
+        val prefs = context.getSharedPreferences("munasabati_events", Context.MODE_PRIVATE)
+        if (oldLegacyPayload == null) prefs.edit().remove("events").commit()
+        else prefs.edit().putString("events", oldLegacyPayload).commit()
     }
+
+    private fun row(id: String): EventModel? = app.repository.allEvents().firstOrNull { it.id == id }
 
     private fun createCalendar(): Long {
         val uri = CalendarContract.Calendars.CONTENT_URI.buildUpon()
@@ -90,8 +103,8 @@ class CalendarSyncSmokeTest {
         val calId = createCalendar()
         val now = System.currentTimeMillis()
 
-        // This pair intentionally resembles the legacy heuristic that previously deleted
-        // a local past event when an external event had the same title and start time.
+        // Same title/time as an external past event: this is the exact shape that the old
+        // heuristic could wrongly delete. v5.3 must preserve the local row unconditionally.
         val pastStart = now - 3_600_000L * 3
         val pastEnd = now - 3_600_000L * 2
         createProviderEvent(calId, "Protected local history", pastStart, pastEnd)
@@ -110,7 +123,7 @@ class CalendarSyncSmokeTest {
 
         val manager = CalendarSyncManager(context, app.repository)
         manager.cleanupExpiredCalendarEvents()
-        assertNotNull("Local history must never be deleted by calendar cleanup", app.repository.eventById(localPast.id))
+        assertNotNull("Local history must never be deleted by calendar cleanup", row(localPast.id))
 
         val result = manager.syncCalendar(calId)
         assertTrue(result.importedOrUpdated >= 1)
@@ -125,7 +138,7 @@ class CalendarSyncSmokeTest {
         manager.disconnectCalendar(calId)
         assertFalse(manager.isCalendarConnected(calId))
         assertFalse(manager.liveConnectedEvents().any { it.title == "Live external event" })
-        assertNotNull(app.repository.eventById(localPast.id))
+        assertNotNull(row(localPast.id))
     }
 
     @Test
@@ -135,9 +148,12 @@ class CalendarSyncSmokeTest {
 
         var date = LocalDate.now()
         var found: List<EventModel> = emptyList()
-        repeat(400) {
-            found = UnifiedCalendarSource.ahlBaytEventsForDate(context, date)
-            if (found.isNotEmpty()) return@repeat
+        for (i in 0..400) {
+            val candidate = UnifiedCalendarSource.ahlBaytEventsForDate(context, date)
+            if (candidate.isNotEmpty()) {
+                found = candidate
+                break
+            }
             date = date.plusDays(1)
         }
         assertTrue("At least one Ahl al-Bayt occasion must be visible in the calendar year", found.isNotEmpty())
@@ -147,7 +163,6 @@ class CalendarSyncSmokeTest {
     @Test
     fun previousEventRecovery_restoresMissingLegacyRow_withoutOverwritingCurrentRows() {
         val prefs = context.getSharedPreferences("munasabati_events", Context.MODE_PRIVATE)
-        val oldPayload = prefs.getString("events", null)
         val recoveredId = "v530-recover-${UUID.randomUUID()}"
         val currentId = "v530-current-${UUID.randomUUID()}"
         localIds += recoveredId
@@ -179,10 +194,7 @@ class CalendarSyncSmokeTest {
 
         val recovered = PreviousEventRecovery.recoverMissingLegacyEventsOnce(context, app.repository, now)
         assertTrue(recovered >= 1)
-        assertNotNull(app.repository.eventById(recoveredId))
-        assertTrue(app.repository.eventById(currentId)?.title == "Current row wins")
-
-        if (oldPayload == null) prefs.edit().remove("events").commit()
-        else prefs.edit().putString("events", oldPayload).commit()
+        assertNotNull(row(recoveredId))
+        assertTrue(row(currentId)?.title == "Current row wins")
     }
 }
