@@ -1,0 +1,64 @@
+name: Munasabati v5.5 Fast Compile
+
+on:
+  push:
+    branches: [ "munasabati-v5.5-build" ]
+    paths: [ '.github/workflows/munasabati-v5.5-fast-compile.yml' ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct and patch v5.5
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502-brand/source.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/v502.tgz
+          mkdir -p v5src
+          tar -xzf /tmp/v502.tgz -C v5src
+          python .munasabati-v5.0.3-final/apply_userfix503.py v5src
+          base64 --decode .munasabati-v5.0.4/v504.patch.gz.b64 | gunzip > /tmp/v504.patch
+          patch -p1 -d v5src < /tmp/v504.patch
+          cat .munasabati-v5.1.0/parts/part* > /tmp/v510.patch.gz.b64
+          base64 --decode /tmp/v510.patch.gz.b64 | gunzip > /tmp/v510.patch
+          patch -p1 -d v5src < /tmp/v510.patch
+          python .munasabati-v5.2.0/apply_v520.py v5src .munasabati-v5.2.0
+          python .munasabati-v5.2.1/apply_v521.py v5src
+          python .munasabati-v5.2.2/apply_v522.py v5src .munasabati-v5.2.2
+          python .munasabati-v5.2.3/apply_v523.py v5src .munasabati-v5.2.3
+          python .munasabati-v5.2.4/apply_v524.py v5src .munasabati-v5.2.4
+          python .munasabati-v5.2.5/apply_v525.py v5src .munasabati-v5.2.5
+          python .munasabati-v5.2.6/apply_v526.py v5src .munasabati-v5.2.6
+          python .munasabati-v5.3.0/apply_v530.py v5src .munasabati-v5.3.0
+          cat .munasabati-v5.4/parts/part* > /tmp/v540.patch.gz.b64
+          base64 --decode /tmp/v540.patch.gz.b64 | gunzip > /tmp/v540.patch
+          patch -p1 -d v5src < /tmp/v540.patch
+          base64 --decode .munasabati-v5.5/v550.patch.gz.b64 | gunzip > /tmp/v550.patch
+          patch -p1 -d v5src < /tmp/v550.patch
+      - uses: actions/setup-java@v5
+        with: { distribution: temurin, java-version: '17' }
+      - uses: android-actions/setup-android@v3
+      - run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "platform-tools"
+      - uses: gradle/actions/setup-gradle@v4
+        with: { gradle-version: '9.3.1' }
+      - name: Fast tests and release compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p v5src :app:testStableDebugUnitTest :app:assembleStableRelease --stacktrace --no-daemon
+          mkdir -p final
+          cp "$(find v5src/app/build/outputs/apk/stable/release -type f -name '*.apk' | head -1)" final/Munasabati-v5.5.0-fast-unsigned.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.5.0-fast-compile
+          path: final/*
+          if-no-files-found: error
+          retention-days: 2
