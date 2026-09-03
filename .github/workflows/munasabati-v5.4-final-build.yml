@@ -55,7 +55,7 @@ jobs:
           grep -q 'versionName = "5.4.0"' v5src/app/build.gradle.kts
           grep -q 'resetDismissedExternalEvents' v5src/app/src/main/java/com/rafat/munasabati/compat/CalendarSync.kt
           grep -q 'dismissExternalEvent' v5src/app/src/main/java/com/rafat/munasabati/compat/CalendarSync.kt
-          grep -q 'CHANNEL_REMINDER_V54' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
+          grep -q 'munasabati_events_sound_v540' v5src/app/src/main/java/com/rafat/munasabati/reminder/ReminderEngine.kt
 
       - uses: actions/setup-java@v5
         with:
