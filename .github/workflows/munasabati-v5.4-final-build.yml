@@ -48,7 +48,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          base64 --decode .munasabati-v5.4/v540.patch.gz.b64 | gunzip > /tmp/v540.patch
+          cat .munasabati-v5.4/parts/part* > /tmp/v540.patch.gz.b64
+          base64 --decode /tmp/v540.patch.gz.b64 | gunzip > /tmp/v540.patch
           patch -p1 -d v5src < /tmp/v540.patch
           grep -q 'versionCode = 100' v5src/app/build.gradle.kts
           grep -q 'versionName = "5.4.0"' v5src/app/build.gradle.kts
