@@ -1,0 +1,57 @@
+name: Munasabati v5.2.7 Source Audit
+
+on:
+  push:
+    branches: [ "munasabati-v5-build" ]
+    paths:
+      - '.github/workflows/munasabati-v5.2.7-source-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  export-source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore exact v5.2.6 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .munasabati-v5-v502-brand/source.part*.b64 > /tmp/v502.b64
+          base64 --decode /tmp/v502.b64 > /tmp/v502.tgz
+          mkdir -p v5src
+          tar -xzf /tmp/v502.tgz -C v5src
+          python .munasabati-v5.0.3-final/apply_userfix503.py v5src
+          base64 --decode .munasabati-v5.0.4/v504.patch.gz.b64 | gunzip > /tmp/v504.patch
+          patch -p1 -d v5src < /tmp/v504.patch
+          cat .munasabati-v5.1.0/parts/part* > /tmp/v510.patch.gz.b64
+          base64 --decode /tmp/v510.patch.gz.b64 | gunzip > /tmp/v510.patch
+          patch -p1 -d v5src < /tmp/v510.patch
+          python .munasabati-v5.2.0/apply_v520.py v5src .munasabati-v5.2.0
+          python .munasabati-v5.2.1/apply_v521.py v5src
+          python .munasabati-v5.2.2/apply_v522.py v5src .munasabati-v5.2.2
+          python .munasabati-v5.2.3/apply_v523.py v5src .munasabati-v5.2.3
+          python .munasabati-v5.2.4/apply_v524.py v5src .munasabati-v5.2.4
+          python .munasabati-v5.2.5/apply_v525.py v5src .munasabati-v5.2.5
+          python .munasabati-v5.2.6/apply_v526.py v5src .munasabati-v5.2.6
+          grep -q 'versionCode = 86' v5src/app/build.gradle.kts
+          grep -q 'versionName = "5.2.6"' v5src/app/build.gradle.kts
+      - name: Package source audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p audit
+          cp v5src/app/build.gradle.kts audit/
+          cp -R v5src/app/src/main audit/main
+          cp -R v5src/app/src/test audit/test || true
+          cp -R v5src/app/src/androidTest audit/androidTest || true
+          find audit/main -type f | sort > audit/file-list.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-v5.2.6-reconstructed-source-audit
+          path: audit
+          if-no-files-found: error
+          retention-days: 2
