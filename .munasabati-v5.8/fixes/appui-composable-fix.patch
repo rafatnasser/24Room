@@ -1,0 +1,19 @@
+--- a/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
++++ b/app/src/main/java/com/rafat/munasabati/ui/AppUi.kt
+@@ -297,6 +297,7 @@
+             Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(6.dp)) { Icon(Icons.Default.Schedule, null, tint=MaterialTheme.colorScheme.onSurfaceVariant, modifier=Modifier.size(16.dp)); Text(date, textAlign = TextAlign.Start, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize=12.sp) }
+             if (e.locationName.isNotBlank()) Row(verticalAlignment=Alignment.CenterVertically, horizontalArrangement=Arrangement.spacedBy(6.dp)) { Icon(Icons.Default.LocationOn, null, tint=MaterialTheme.colorScheme.primary, modifier=Modifier.size(16.dp)); Text(e.locationName, modifier = Modifier.weight(1f), textAlign = TextAlign.Start, fontSize=12.sp, color=MaterialTheme.colorScheme.onSurfaceVariant) }
+             val linkedPerson = e.personId?.let { repo(context).personById(it) }
++            val englishForShare = LocalAppLanguage.current == "en"
+             LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                 item { AssistChip(onClick = { ShareTools.shareText(context, ShareTools.eventText(e), true); linkedPerson?.let { repo(context).recordInteraction(it.id, e.id, "message") } }, label = { Text(tr("رسالة", "Message")) }, leadingIcon = { Icon(Icons.Default.Message, null) }) }
+                 if (linkedPerson?.phone?.isNotBlank() == true) item { AssistChip(onClick = { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${linkedPerson.phone}"))); repo(context).recordInteraction(linkedPerson.id, e.id, "call") }, label = { Text(tr("اتصال", "Call")) }, leadingIcon = { Icon(Icons.Default.Call, null) }) }
+@@ -305,7 +306,7 @@
+                     context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                 }, label = { Text(tr("الموقع", "Location")) }, leadingIcon = { Icon(Icons.Default.LocationOn, null) }) }
+                 item { AssistChip(onClick = { ShareTools.shareBitmap(context, ShareTools.qrBitmap(ShareTools.eventText(e)), "event_qr_${e.id}.png") }, label = { Text("QR") }, leadingIcon = { Icon(Icons.Default.QrCode, null) }) }
+-                item { AssistChip(onClick = { ShareTools.shareBitmap(context, ShareTools.eventCard(e, ShareTools.EventCardTemplate.ELEGANT, LocalAppLanguage.current == "en"), "event_card_${e.id}.png") }, label = { Text(tr("بطاقة", "Card")) }, leadingIcon = { Icon(Icons.Default.Image, null) }) }
++                item { AssistChip(onClick = { ShareTools.shareBitmap(context, ShareTools.eventCard(e, ShareTools.EventCardTemplate.ELEGANT, englishForShare), "event_card_${e.id}.png") }, label = { Text(tr("بطاقة", "Card")) }, leadingIcon = { Icon(Icons.Default.Image, null) }) }
+                 item { AssistChip(onClick = { uiTap(context) { confirmDelete = true } }, label = { Text(tr("حذف", "Delete")) }, leadingIcon = { Icon(Icons.Default.Delete, null) }) }
+                 item { AssistChip(onClick = { val r = repo(context); r.upsertEvent(e.copy(attended = true, status = EventStatus.DONE, updatedAt = System.currentTimeMillis())); e.personId?.let { r.recordInteraction(it, e.id, "attended") }; WidgetUpdater.updateAll(context); onChanged() }, label = { Text(tr("حضرت", "Attended")) }, leadingIcon = { Icon(Icons.Default.Check, null) }) }
+             }
