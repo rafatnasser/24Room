@@ -56,4 +56,15 @@ old = res / 'drawable/ic_launcher.xml'
 if old.exists():
     old.unlink()
 
+# Historical quality suites intentionally keep validating their feature areas,
+# but their release-number assertions must follow the maintenance release.
+test_dir = app / 'src/androidTest/java/com/rafat/munasabati'
+for test_name in ['V57QualityInstrumentedTest.kt', 'V58QualityInstrumentedTest.kt']:
+    p = test_dir / test_name
+    s = p.read_text(encoding='utf-8')
+    updated = s.replace('"5.8.0"', '"5.8.1"')
+    if updated == s:
+        raise SystemExit(f'could not update version assertion in {test_name}')
+    p.write_text(updated, encoding='utf-8')
+
 print('Munasabati v5.8.1 official icon applied')
