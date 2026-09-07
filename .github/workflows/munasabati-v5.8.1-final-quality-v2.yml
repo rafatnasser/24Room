@@ -79,6 +79,8 @@ jobs:
           python .munasabati-v5.8.1/apply_v581.py v5src /tmp/official.webp
           grep -q 'versionCode = 141' v5src/app/build.gradle.kts
           grep -q 'versionName = "5.8.1"' v5src/app/build.gradle.kts
+          grep -q '"5.8.1"' v5src/app/src/androidTest/java/com/rafat/munasabati/V57QualityInstrumentedTest.kt
+          grep -q '"5.8.1"' v5src/app/src/androidTest/java/com/rafat/munasabati/V58QualityInstrumentedTest.kt
           grep -q 'android:icon="@mipmap/ic_launcher"' v5src/app/src/main/AndroidManifest.xml
           grep -q 'android:roundIcon="@mipmap/ic_launcher_round"' v5src/app/src/main/AndroidManifest.xml
           test -f v5src/app/src/main/res/mipmap-nodpi/ic_launcher.webp
@@ -160,3 +162,5 @@ jobs:
           path: final/**
           if-no-files-found: error
           retention-days: 7
+
+# Revalidated after correcting historical version assertions for the 5.8.1 maintenance release.
