@@ -1,0 +1,54 @@
+name: Build Munasabati APK
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 35
+        run: yes | sdkmanager --licenses >/dev/null && sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Apply Munasabati v4 integration
+        working-directory: MunasabatiLite
+        run: |
+          python3 v4_apply.py
+          python3 v4_finish.py
+      - name: Stamp visible app version
+        run: |
+          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' MunasabatiLite/app/build.gradle.kts)
+          test -n "$VERSION"
+          sed -i -E "s/(MUNASABATI  •  PREMIUM  •  )v[0-9.]+/\1v${VERSION}/" MunasabatiLite/app/src/main/java/com/rafat/munasabati/SettingsActivity.java
+          grep 'PREMIUM' MunasabatiLite/app/src/main/java/com/rafat/munasabati/SettingsActivity.java
+      - name: Build unsigned release APK
+        working-directory: MunasabatiLite
+        run: gradle assembleRelease --stacktrace
+      - name: Collect unsigned APK
+        run: cp MunasabatiLite/app/build/outputs/apk/release/app-release-unsigned.apk Munasabati-Unsigned.apk
+      - name: Collect Android APK signing tool
+        run: |
+          APKSIG=$(find ~/.gradle/caches/modules-2/files-2.1/com.android.tools.build/apksig -name 'apksig-*.jar' | head -1)
+          test -n "$APKSIG"
+          cp "$APKSIG" apksig.jar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Munasabati-Unsigned-APK
+          path: Munasabati-Unsigned.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Android-APK-Signing-Tool
+          path: apksig.jar
+          if-no-files-found: error

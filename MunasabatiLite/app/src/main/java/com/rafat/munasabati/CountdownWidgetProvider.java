@@ -1,0 +1,1 @@
+package com.rafat.munasabati;import android.appwidget.*;import android.content.*;public class CountdownWidgetProvider extends AppWidgetProvider{@Override public void onUpdate(Context c,AppWidgetManager m,int[] ids){for(int id:ids)ExtraWidgetUpdater.countdown(c,m,id);}}
